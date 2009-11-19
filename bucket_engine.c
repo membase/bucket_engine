@@ -173,7 +173,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
             fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                     error);
             dlclose(handle);
-            return ENGINE_ENOTSUP;
+            return ENGINE_FAILED;
         }
     } else {
         fprintf(stderr, "Unsupported interface level\n");
