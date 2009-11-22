@@ -14,9 +14,11 @@ struct bucket_engine {
         ENGINE_HANDLE *v0;
         ENGINE_HANDLE_V1 *v1;
     } proxied_engine;
+    SERVER_HANDLE_V1 *server;
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
+                                  SERVER_HANDLE_V1 *server,
                                   ENGINE_HANDLE **handle);
 
 static const char* bucket_get_info(ENGINE_HANDLE* handle);
@@ -88,18 +90,20 @@ struct bucket_engine bucket_engine = {
         .store = bucket_store,
         .arithmetic = bucket_arithmetic,
         .flush = bucket_flush,
-        .unknow_command = bucket_unknown_command,
+        .unknown_command = bucket_unknown_command,
     },
     .initialized = true,
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
+                                  SERVER_HANDLE_V1 *server,
                                   ENGINE_HANDLE **handle) {
     if (interface != 1) {
         return ENGINE_ENOTSUP;
     }
 
     *handle = (ENGINE_HANDLE*)&bucket_engine;
+    bucket_engine.server = server;
     return ENGINE_SUCCESS;
 }
 
@@ -155,7 +159,9 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
 
     /* request a instance with protocol version 1 */
     ENGINE_HANDLE *engine = proxied_engine_v0();
-    ENGINE_ERROR_CODE error = (*my_create.create)(1, &engine);
+    ENGINE_ERROR_CODE error = (*my_create.create)(1,
+                                                  bucket_engine.server,
+                                                  &engine);
 
     if (error != ENGINE_SUCCESS || engine == NULL) {
         fprintf(stderr, "Failed to create instance. Error code: %d\n", error);
@@ -233,6 +239,8 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                          int nkey,
                                          ADD_STAT add_stat)
 {
+    const char *user = bucket_engine.server->get_auth_data(cookie);
+    printf("Authenticated as %s\n", user ?: "<nobody>");
     return proxied_engine_v1()->get_stats(handle, cookie, stat_key,
                                           nkey, add_stat);
 }
