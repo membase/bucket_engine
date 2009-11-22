@@ -14,11 +14,12 @@ struct bucket_engine {
         ENGINE_HANDLE *v0;
         ENGINE_HANDLE_V1 *v1;
     } proxied_engine;
+    GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 *server;
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
-                                  SERVER_HANDLE_V1 *server,
+                                  GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
 
 static const char* bucket_get_info(ENGINE_HANDLE* handle);
@@ -96,14 +97,15 @@ struct bucket_engine bucket_engine = {
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
-                                  SERVER_HANDLE_V1 *server,
+                                  GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
     if (interface != 1) {
         return ENGINE_ENOTSUP;
     }
 
     *handle = (ENGINE_HANDLE*)&bucket_engine;
-    bucket_engine.server = server;
+    bucket_engine.get_server_api = gsapi;
+    bucket_engine.server = gsapi(1);
     return ENGINE_SUCCESS;
 }
 
@@ -160,7 +162,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     /* request a instance with protocol version 1 */
     ENGINE_HANDLE *engine = proxied_engine_v0();
     ENGINE_ERROR_CODE error = (*my_create.create)(1,
-                                                  bucket_engine.server,
+                                                  bucket_engine.get_server_api,
                                                   &engine);
 
     if (error != ENGINE_SUCCESS || engine == NULL) {
