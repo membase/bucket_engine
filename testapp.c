@@ -131,7 +131,7 @@ char* ITEM_data(const item* item) {
 // The actual test stuff...
 // ----------------------------------------------------------------------
 
-void test_storage(ENGINE_HANDLE_V1 *h) {
+void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
     char *key = "somekey";
@@ -139,23 +139,29 @@ void test_storage(ENGINE_HANDLE_V1 *h) {
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h->allocate((ENGINE_HANDLE*)h, cookie, &item,
-                     key, strlen(key),
-                     strlen(value), 9258, 3600);
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
     memcpy(ITEM_data(item), value, strlen(value));
 
-    rv = h->store((ENGINE_HANDLE*)h, cookie, item, 0, OPERATION_SET);
+    rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
 
-    rv = h->get((ENGINE_HANDLE*)h, cookie, &fetched_item, key, strlen(key));
+    rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_SUCCESS);
 
     assert(memcmp(ITEM_data(fetched_item), value, strlen(value)) == 0);
 }
 
+struct test {
+    const char *name;
+    void (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
+};
+
 int main(int argc, char **argv) {
+    int i = 0;
     printf("Starting...\n");
     const char *cfg = "engine=.libs/mock_engine.so";
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
@@ -163,5 +169,18 @@ int main(int argc, char **argv) {
     assert(h);
     printf("Engine:  %s\n", h->get_info((ENGINE_HANDLE*)h));
 
-    test_storage(h);
+    struct test tests[] = {
+        {"test_storage", test_storage},
+        {NULL, NULL}
+    };
+
+
+    for (i = 0; tests[i].name; i++) {
+        printf("Running %s... ", tests[i].name);
+        fflush(stdout);
+        tests[i].tfun((ENGINE_HANDLE*)h, h);
+        printf("OK\n");
+    }
+
+    return 0;
 }
