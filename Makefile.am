@@ -1,4 +1,4 @@
-common_CFLAGS=-g -O0
+common_CFLAGS=-Wall
 common_LDFLAGS=-g
 
 lib_LTLIBRARIES = bucket_engine.la
