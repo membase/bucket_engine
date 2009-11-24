@@ -6,6 +6,11 @@
 
 #include "memcached/engine.h"
 
+struct test {
+    const char *name;
+    void (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
+};
+
 static const char* get_server_version() {
     return "bucket mock";
 }
@@ -140,11 +145,6 @@ void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 
     assert_item_eq(h, h1, item, fetched_item);
 }
-
-struct test {
-    const char *name;
-    void (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
-};
 
 int main(int argc, char **argv) {
     int i = 0;
