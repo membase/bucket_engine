@@ -6,12 +6,6 @@
 
 #include "memcached/engine.h"
 
-#define ITEM_LINKED 1
-#define ITEM_CAS 2
-
-/* temp */
-#define ITEM_SLABBED 4
-
 static const char* get_server_version() {
     return "bucket mock";
 }
@@ -99,34 +93,6 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
     return engine;
 }
 
-uint64_t ITEM_get_cas(const item* item)
-{
-    if (item->iflag & ITEM_CAS) {
-        return *(uint64_t*)(item + 1);
-    }
-    return 0;
-}
-
-void ITEM_set_cas(item* item, uint64_t val)
-{
-    if (item->iflag & ITEM_CAS) {
-        *(uint64_t*)(item + 1) = val;
-    }
-}
-
-char* ITEM_key(const item* item) {
-    char *ret = (void*)(item + 1);
-    if (item->iflag & ITEM_CAS) {
-        ret += sizeof(uint64_t);
-    }
-
-    return ret;
-}
-
-char* ITEM_data(const item* item) {
-    return ITEM_key(item) + item->nkey + 1;
-}
-
 // ----------------------------------------------------------------------
 // The actual test stuff...
 // ----------------------------------------------------------------------
@@ -144,7 +110,7 @@ void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    memcpy(ITEM_data(item), value, strlen(value));
+    memcpy(h1->item_get_data(item), value, strlen(value));
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
@@ -152,7 +118,7 @@ void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_SUCCESS);
 
-    assert(memcmp(ITEM_data(fetched_item), value, strlen(value)) == 0);
+    assert(memcmp(h1->item_get_data(fetched_item), value, strlen(value)) == 0);
 }
 
 struct test {

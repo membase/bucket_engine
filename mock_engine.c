@@ -9,6 +9,9 @@
 
 #define MAGIC 0x426D4639C1BFEC3ll
 
+#define ITEM_LINKED 1
+#define ITEM_WITH_CAS 2
+
 struct mock_stats {
     int get_reqs;
     int set_reqs;
@@ -77,6 +80,11 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response);
+static char* item_get_data(const item* item);
+static char* item_get_key(const item* item);
+static void item_set_cas(item* item, uint64_t val);
+static uint64_t item_get_cas(const item* item);
+static uint8_t item_get_clsid(const item* item);
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
@@ -101,6 +109,12 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     h->engine.arithmetic = mock_arithmetic;
     h->engine.flush = mock_flush;
     h->engine.unknown_command = mock_unknown_command;
+    h->engine.item_get_cas = item_get_cas;
+    h->engine.item_set_cas = item_set_cas;
+    h->engine.item_get_key = item_get_key;
+    h->engine.item_get_data = item_get_data;
+    h->engine.item_get_clsid = item_get_clsid;
+
     h->magic = MAGIC;
     h->magic2 = MAGIC;
 
@@ -186,7 +200,7 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
         i->nbytes = nbytes;
         i->flags = flags;
         i->nkey = nkey;
-        memcpy(ITEM_key(i), key, nkey);
+        memcpy(item_get_key(i), key, nkey);
         return ENGINE_SUCCESS;
     } else {
         return ENGINE_ENOMEM;
@@ -200,7 +214,7 @@ static genhash_t *get_ht(ENGINE_HANDLE *handle) {
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           item* item) {
-    genhash_delete_all(get_ht(handle), ITEM_key(item), item->nkey);
+    genhash_delete_all(get_ht(handle), item_get_key(item), item->nkey);
     return ENGINE_SUCCESS;
 }
 
@@ -233,7 +247,7 @@ static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     item* item,
                                     uint64_t *cas,
                                     ENGINE_STORE_OPERATION operation) {
-    genhash_update(get_ht(handle), ITEM_key(item), item->nkey, item, 0);
+    genhash_update(get_ht(handle), item_get_key(item), item->nkey, item, 0);
     return ENGINE_SUCCESS;
 }
 
@@ -268,4 +282,39 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               ADD_RESPONSE response)
 {
     return ENGINE_ENOTSUP;
+}
+
+static uint64_t item_get_cas(const item* item)
+{
+    if (item->iflag & ITEM_WITH_CAS) {
+        return *(uint64_t*)(item + 1);
+    }
+    return 0;
+}
+
+static void item_set_cas(item* item, uint64_t val)
+{
+    if (item->iflag & ITEM_WITH_CAS) {
+        *(uint64_t*)(item + 1) = val;
+    }
+}
+
+static char* item_get_key(const item* item)
+{
+    char *ret = (void*)(item + 1);
+    if (item->iflag & ITEM_WITH_CAS) {
+        ret += sizeof(uint64_t);
+    }
+
+    return ret;
+}
+
+static char* item_get_data(const item* item)
+{
+    return item_get_key(item) + item->nkey + 1;
+}
+
+static uint8_t item_get_clsid(const item* item)
+{
+    return 0;
 }

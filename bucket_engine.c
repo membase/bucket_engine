@@ -74,6 +74,11 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                const void* cookie,
                                                protocol_binary_request_header *request,
                                                ADD_RESPONSE response);
+static char* item_get_data(const item* item);
+static char* item_get_key(const item* item);
+static void item_set_cas(item* item, uint64_t val);
+static uint64_t item_get_cas(const item* item);
+static uint8_t item_get_clsid(const item* item);
 
 struct bucket_engine bucket_engine = {
     .engine = {
@@ -93,6 +98,11 @@ struct bucket_engine bucket_engine = {
         .arithmetic = bucket_arithmetic,
         .flush = bucket_flush,
         .unknown_command = bucket_unknown_command,
+        .item_get_cas = item_get_cas,
+        .item_set_cas = item_set_cas,
+        .item_get_key = item_get_key,
+        .item_get_data = item_get_data,
+        .item_get_clsid = item_get_clsid
     },
     .initialized = true,
 };
@@ -319,4 +329,24 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                ADD_RESPONSE response)
 {
     return ENGINE_ENOTSUP;
+}
+
+static char* item_get_data(const item* item) {
+    return bucket_engine.proxied_engine.v1->item_get_data(item);
+}
+
+static char* item_get_key(const item* item) {
+    return bucket_engine.proxied_engine.v1->item_get_key(item);
+}
+
+static void item_set_cas(item* item, uint64_t val) {
+    bucket_engine.proxied_engine.v1->item_set_cas(item, val);
+}
+
+static uint64_t item_get_cas(const item* item) {
+    return bucket_engine.proxied_engine.v1->item_get_cas(item);
+}
+
+static uint8_t item_get_clsid(const item* item) {
+    return bucket_engine.proxied_engine.v1->item_get_clsid(item);
 }
