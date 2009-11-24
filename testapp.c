@@ -97,18 +97,24 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
 // The actual test stuff...
 // ----------------------------------------------------------------------
 
-void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
+static bool item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                     item *i1, item *i2) {
-    assert(i1->exptime == i2->exptime);
-    assert(i1->flags == i2->flags);
-    assert(i1->nkey == i2->nkey);
-    assert(i1->nbytes == i2->nbytes);
-    assert(memcmp(h1->item_get_key(i1),
+
+    return i1->exptime == i2->exptime
+        && i1->flags == i2->flags
+        && i1->nkey == i2->nkey
+        && i1->nbytes == i2->nbytes
+        && memcmp(h1->item_get_key(i1),
                   h1->item_get_key(i2),
-                  i1->nkey) == 0);
-    assert(memcmp(h1->item_get_data(i1),
+                  i1->nkey) == 0
+        && memcmp(h1->item_get_data(i1),
                   h1->item_get_data(i2),
-                  i1->nbytes) == 0);
+                  i1->nbytes) == 0;
+}
+
+static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
+                           item *i1, item *i2) {
+    assert(item_eq(h, h1, i1, i2));
 }
 
 void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
