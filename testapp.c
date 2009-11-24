@@ -97,6 +97,20 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
 // The actual test stuff...
 // ----------------------------------------------------------------------
 
+void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
+                    item *i1, item *i2) {
+    assert(i1->exptime == i2->exptime);
+    assert(i1->flags == i2->flags);
+    assert(i1->nkey == i2->nkey);
+    assert(i1->nbytes == i2->nbytes);
+    assert(memcmp(h1->item_get_key(i1),
+                  h1->item_get_key(i2),
+                  i1->nkey) == 0);
+    assert(memcmp(h1->item_get_data(i1),
+                  h1->item_get_data(i2),
+                  i1->nbytes) == 0);
+}
+
 void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
@@ -118,7 +132,7 @@ void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_SUCCESS);
 
-    assert(memcmp(h1->item_get_data(fetched_item), value, strlen(value)) == 0);
+    assert_item_eq(h, h1, item, fetched_item);
 }
 
 struct test {
