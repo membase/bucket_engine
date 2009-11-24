@@ -117,7 +117,7 @@ static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     assert(item_eq(h, h1, i1, i2));
 }
 
-void test_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
     char *key = "somekey";
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
     printf("Engine:  %s\n", h->get_info((ENGINE_HANDLE*)h));
 
     struct test tests[] = {
-        {"test_storage", test_storage},
+        {"default storage", test_default_storage},
         {NULL, NULL}
     };
 
