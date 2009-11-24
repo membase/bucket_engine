@@ -199,6 +199,12 @@ static void* noop_dup(const void* ob, size_t vlen) {
     return (void*)ob;
 }
 
+static void engine_free(void* ob) {
+    proxied_engine_t *e = (proxied_engine_t *)ob;
+    e->v1->destroy(e->v0);
+    free(ob);
+}
+
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str) {
     struct bucket_engine* se = get_handle(handle);
@@ -214,7 +220,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         .dupKey = hash_strdup,
         .dupValue = noop_dup,
         .freeKey = free,
-        .freeValue = free
+        .freeValue = engine_free
     };
 
     se->engines = genhash_init(1, my_hash_ops);
