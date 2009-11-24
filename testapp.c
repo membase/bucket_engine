@@ -122,6 +122,26 @@ static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     assert(item_eq(h, h1, i1, i2));
 }
 
+/* Convenient storage abstraction */
+static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
+                  const void *cookie,
+                  const char *key, const char *value) {
+
+    item *item = NULL;
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+
+    memcpy(h1->item_get_data(item), value, strlen(value));
+
+    rv = h1->store(h, cookie, item, 0, OPERATION_SET);
+    assert(rv == ENGINE_SUCCESS);
+}
+
 void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
@@ -146,6 +166,25 @@ void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert_item_eq(h, h1, item, fetched_item);
 }
 
+void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *fetched_item1 = NULL, *fetched_item2 = NULL;
+    const void *cookie1 = "user1", *cookie2 = "user2";
+    char *key = "somekey";
+    char *value1 = "some value1", *value2 = "some value 2";
+
+    store(h, h1, cookie1, key, value1);
+    store(h, h1, cookie2, key, value2);
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->get(h, cookie1, &fetched_item1, key, strlen(key));
+    assert(rv == ENGINE_SUCCESS);
+    rv = h1->get(h, cookie2, &fetched_item2, key, strlen(key));
+    assert(rv == ENGINE_SUCCESS);
+
+    assert(!item_eq(h, h1, fetched_item1, fetched_item2));
+}
+
 int main(int argc, char **argv) {
     int i = 0;
     printf("Starting...\n");
@@ -157,6 +196,7 @@ int main(int argc, char **argv) {
 
     struct test tests[] = {
         {"default storage", test_default_storage},
+        {"distinct storage", test_two_engines},
         {NULL, NULL}
     };
 
