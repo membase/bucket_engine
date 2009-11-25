@@ -192,6 +192,30 @@ static void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert_item_eq(h, h1, item2, fetched_item2);
 }
 
+static void test_two_engines_del(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
+    const void *cookie1 = "user1", *cookie2 = "user2";
+    char *key = "somekey";
+    char *value1 = "some value1", *value2 = "some value 2";
+
+    store(h, h1, cookie1, key, value1, &item1);
+    store(h, h1, cookie2, key, value2, &item2);
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Delete an item
+    rv = h1->remove(h, cookie1, item1);
+    assert(rv == ENGINE_SUCCESS);
+
+    rv = h1->get(h, cookie1, &fetched_item1, key, strlen(key));
+    assert(rv == ENGINE_KEY_ENOENT);
+    assert(fetched_item1 == NULL);
+    rv = h1->get(h, cookie2, &fetched_item2, key, strlen(key));
+    assert(rv == ENGINE_SUCCESS);
+
+    assert_item_eq(h, h1, item2, fetched_item2);
+}
+
 static void test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     const char *info = h1->get_info(h);
     assert(strncmp(info, "Bucket engine", 13) == 0);
@@ -213,6 +237,7 @@ int main(int argc, char **argv) {
         {"get info", test_get_info},
         {"default storage", test_default_storage},
         {"distinct storage", test_two_engines},
+        {"delete from one of two nodes", test_two_engines_del},
         {NULL, NULL}
     };
 
