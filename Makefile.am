@@ -1,5 +1,5 @@
-common_CFLAGS=-Wall
-common_LDFLAGS=-g
+common_CFLAGS=-Wall @PROFILER_FLAGS@
+common_LDFLAGS=-g @PROFILER_LDFLAGS@
 
 lib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c config_parser.c config_parser.h \
