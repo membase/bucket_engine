@@ -185,14 +185,18 @@ void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(!item_eq(h, h1, fetched_item1, fetched_item2));
 }
 
-int main(int argc, char **argv) {
-    int i = 0;
-    printf("Starting...\n");
+static ENGINE_HANDLE_V1 *start_your_engines() {
     const char *cfg = "engine=.libs/mock_engine.so";
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
     assert(h);
-    printf("Engine:  %s\n", h->get_info((ENGINE_HANDLE*)h));
+    // printf("Engine:  %s\n", h->get_info((ENGINE_HANDLE*)h));
+    return h;
+}
+
+int main(int argc, char **argv) {
+    int i = 0;
+    printf("Starting...\n");
 
     struct test tests[] = {
         {"default storage", test_default_storage},
@@ -200,11 +204,12 @@ int main(int argc, char **argv) {
         {NULL, NULL}
     };
 
-
     for (i = 0; tests[i].name; i++) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
+        ENGINE_HANDLE_V1 *h = start_your_engines();
         tests[i].tfun((ENGINE_HANDLE*)h, h);
+        h->destroy((ENGINE_HANDLE*)h);
         printf("OK\n");
     }
 

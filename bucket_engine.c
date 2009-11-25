@@ -299,7 +299,8 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
 
     if (se->initialized) {
         pe_v1(handle, NULL)->destroy(pe_v0(handle, NULL));
-        // TODO:  Kill off the hashtable
+        genhash_free(se->engines);
+        se->engines = NULL;
         se->initialized = false;
     }
 }
