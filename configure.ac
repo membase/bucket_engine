@@ -1,5 +1,5 @@
 AC_PREREQ(2.52)
-AC_INIT(memcached, 0.1, brad@danga.com)
+AC_INIT(bucket_engine, 0.1, dustin@spy.net)
 AC_CANONICAL_SYSTEM
 AC_CONFIG_SRCDIR(bucket_engine.c)
 AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
