@@ -44,7 +44,9 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             item* item);
-static void bucket_item_release(ENGINE_HANDLE* handle, item* item);
+static void bucket_item_release(ENGINE_HANDLE* handle,
+                                const void *cookie,
+                                item* item);
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** item,
@@ -55,7 +57,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const char *stat_key,
                                           int nkey,
                                           ADD_STAT add_stat);
-static void bucket_reset_stats(ENGINE_HANDLE* handle);
+static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* item,
@@ -322,9 +324,10 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                          cookie, item);
 }
 
-static void bucket_item_release(ENGINE_HANDLE* handle, item* item) {
-    // XXX:  This seems to need a cookie.
-    pe_v1(handle, NULL)->release(pe_v0(handle, NULL), item);
+static void bucket_item_release(ENGINE_HANDLE* handle,
+                                const void *cookie,
+                                item* item) {
+    pe_v1(handle, cookie)->release(pe_v0(handle, cookie), cookie, item);
 }
 
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
@@ -383,9 +386,8 @@ static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
 
 }
 
-static void bucket_reset_stats(ENGINE_HANDLE* handle) {
-    // XXX:  Needs cookies.
-    pe_v1(handle, NULL)->reset_stats(pe_v0(handle, NULL));
+static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
+    pe_v1(handle, cookie)->reset_stats(pe_v0(handle, cookie), cookie);
 }
 
 static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
