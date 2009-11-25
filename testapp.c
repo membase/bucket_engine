@@ -192,6 +192,11 @@ void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert_item_eq(h, h1, item2, fetched_item2);
 }
 
+static void test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    const char *info = h1->get_info(h);
+    assert(strncmp(info, "Bucket engine", 13) == 0);
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines() {
     const char *cfg = "engine=.libs/mock_engine.so";
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
@@ -205,6 +210,7 @@ int main(int argc, char **argv) {
     int i = 0;
 
     struct test tests[] = {
+        {"get info", test_get_info},
         {"default storage", test_default_storage},
         {"distinct storage", test_two_engines},
         {NULL, NULL}
