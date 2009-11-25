@@ -110,7 +110,7 @@ struct bucket_engine bucket_engine = {
         .item_get_data = item_get_data,
         .item_get_clsid = item_get_clsid
     },
-    .initialized = true,
+    .initialized = false,
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
@@ -209,6 +209,8 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str) {
     struct bucket_engine* se = get_handle(handle);
 
+    assert(!se->initialized);
+
     ENGINE_ERROR_CODE ret = initalize_configuration(se, config_str);
     if (ret != ENGINE_SUCCESS) {
         return ret;
@@ -288,6 +290,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
             pe_v1(handle, NULL)->get_info(pe_v0(handle, NULL)),
             bucket_engine.proxied_engine_path);
 
+    se->initialized = true;
     return ENGINE_SUCCESS;
 }
 
