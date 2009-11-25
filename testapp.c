@@ -125,7 +125,8 @@ static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 /* Convenient storage abstraction */
 static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                   const void *cookie,
-                  const char *key, const char *value) {
+                  const char *key, const char *value,
+                  item **outitem) {
 
     item *item = NULL;
 
@@ -140,6 +141,10 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
+
+    if (outitem) {
+        *outitem = item;
+    }
 }
 
 void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
@@ -167,13 +172,13 @@ void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 }
 
 void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
-    item *fetched_item1 = NULL, *fetched_item2 = NULL;
+    item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
     char *value1 = "some value1", *value2 = "some value 2";
 
-    store(h, h1, cookie1, key, value1);
-    store(h, h1, cookie2, key, value2);
+    store(h, h1, cookie1, key, value1, &item1);
+    store(h, h1, cookie2, key, value2, &item2);
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
@@ -183,6 +188,8 @@ void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(rv == ENGINE_SUCCESS);
 
     assert(!item_eq(h, h1, fetched_item1, fetched_item2));
+    assert_item_eq(h, h1, item1, fetched_item1);
+    assert_item_eq(h, h1, item2, fetched_item2);
 }
 
 static ENGINE_HANDLE_V1 *start_your_engines() {
