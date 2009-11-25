@@ -196,7 +196,6 @@ static ENGINE_HANDLE_V1 *start_your_engines() {
 
 int main(int argc, char **argv) {
     int i = 0;
-    printf("Starting...\n");
 
     struct test tests[] = {
         {"default storage", test_default_storage},

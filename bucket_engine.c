@@ -286,10 +286,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_ENOTSUP;
     }
 
-    fprintf(stderr, "Proxying to %s from %s\n",
-            pe_v1(handle, NULL)->get_info(pe_v0(handle, NULL)),
-            bucket_engine.proxied_engine_path);
-
     se->initialized = true;
     return ENGINE_SUCCESS;
 }
