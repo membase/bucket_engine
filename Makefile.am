@@ -4,7 +4,7 @@ common_LDFLAGS=-g
 lib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c config_parser.c config_parser.h \
 							genhash.h genhash.c genhash_int.h
-bucket_la_CFLAGS = $(common_CFLAGS)
+bucket_engine_la_CFLAGS = $(common_CFLAGS)
 bucket_engine_la_LDFLAGS= -module -dynamic $(common_LDFLAGS)
 
 noinst_LTLIBRARIES = mock_engine.la
