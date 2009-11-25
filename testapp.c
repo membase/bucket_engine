@@ -147,7 +147,7 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     }
 }
 
-void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
     char *key = "somekey";
@@ -171,7 +171,7 @@ void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert_item_eq(h, h1, item, fetched_item);
 }
 
-void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
