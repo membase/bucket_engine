@@ -144,8 +144,9 @@ genhash_update(genhash_t* h, const void* k, size_t klen,
 
 enum update_type
 genhash_fun_update(genhash_t* h, const void* k, size_t klen,
-                   void *(*upd)(const void *, const void *, size_t *),
+                   void *(*upd)(const void *, const void *, size_t *, void *),
                    void (*fr)(void*),
+                   void *arg,
                    const void *def, size_t deflen)
 {
     struct genhash_entry_t *p;
@@ -155,13 +156,13 @@ genhash_fun_update(genhash_t* h, const void* k, size_t klen,
     p=genhash_find_entry(h, k, klen);
 
     if(p) {
-        void *newValue=upd(k, p->value, &newSize);
+        void *newValue=upd(k, p->value, &newSize, arg);
         h->ops.freeValue(p->value);
         p->value=h->ops.dupValue(newValue, newSize);
         fr(newValue);
         rv=MODIFICATION;
     } else {
-        void *newValue=upd(k, def, &newSize);
+        void *newValue=upd(k, def, &newSize, arg);
         genhash_store(h, k, klen, newValue, newSize);
         fr(newValue);
         rv=NEW;

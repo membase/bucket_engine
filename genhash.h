@@ -156,8 +156,10 @@ enum update_type genhash_update(genhash_t *h, const void *k, size_t klen,
  *         an existing one
  */
 enum update_type genhash_fun_update(genhash_t *h, const void *key, size_t klen,
-                                    void *(*upd)(const void *k, const void *oldv, size_t *ns),
+                                    void *(*upd)(const void *k, const void *oldv,
+                                                 size_t *ns, void *a),
                                     void (*fr)(void*),
+                                    void *arg,
                                     const void *def, size_t deflen);
 
 /**
