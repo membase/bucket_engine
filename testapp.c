@@ -240,6 +240,33 @@ static void test_two_engines_flush(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert_item_eq(h, h1, item2, fetched_item2);
 }
 
+static void test_arith(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    const void *cookie1 = "user1", *cookie2 = "user2";
+    char *key = "somekey";
+    uint64_t result = 0, cas = 0;
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Initialize the first one.
+    rv = h1->arithmetic(h, cookie1, key, strlen(key),
+                        true, true, 1, 1, 0, &cas, &result);
+    assert(rv == ENGINE_SUCCESS);
+    assert(cas == 0);
+    assert(result == 1);
+
+    // Fail an init of the second one.
+    rv = h1->arithmetic(h, cookie2, key, strlen(key),
+                        true, false, 1, 1, 0, &cas, &result);
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    // Update the first again.
+    rv = h1->arithmetic(h, cookie1, key, strlen(key),
+                        true, true, 1, 1, 0, &cas, &result);
+    assert(rv == ENGINE_SUCCESS);
+    assert(cas == 0);
+    assert(result == 2);
+}
+
 static void test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     const char *info = h1->get_info(h);
     assert(strncmp(info, "Bucket engine", 13) == 0);
@@ -263,6 +290,7 @@ int main(int argc, char **argv) {
         {"distinct storage", test_two_engines},
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
+        {"isolated arithmetic", test_arith},
         {NULL, NULL}
     };
 
