@@ -264,8 +264,36 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
                                          const rel_time_t exptime,
                                          uint64_t *cas,
                                          uint64_t *result) {
-    // TODO:  Implement
-    return ENGINE_ENOTSUP;
+    item *item_in = NULL, *item_out = NULL;
+    int flags = 0;
+    *cas = 0;
+
+    if (mock_get(handle, cookie, &item_in, key, nkey) == ENGINE_SUCCESS) {
+        // Found, just do the math.
+        // This is all int stuff, just to make it easy.
+        *result = atoi(item_get_data(item_in));
+        *result += delta;
+        flags = item_in->flags;
+    } else if (create) {
+        // Not found, do the initialization
+        *result = initial;
+    } else {
+        // Reject.
+        return ENGINE_KEY_ENOENT;
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", *result);
+    ENGINE_ERROR_CODE rv;
+    if((rv = mock_item_allocate(handle, cookie, &item_out,
+                                key, nkey,
+                                strlen(buf),
+                                flags, exptime)) != ENGINE_SUCCESS) {
+        return rv;
+    }
+    memcpy(item_get_data(item_out), buf, strlen(buf));
+    mock_store(handle, cookie, item_out, 0, OPERATION_SET);
+    return ENGINE_SUCCESS;
 }
 
 static ENGINE_ERROR_CODE mock_flush(ENGINE_HANDLE* handle,
