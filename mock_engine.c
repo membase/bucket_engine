@@ -46,7 +46,8 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           item* item);
-static void mock_item_release(ENGINE_HANDLE* handle, item* item);
+static void mock_item_release(ENGINE_HANDLE* handle,
+                              const void *cookie, item* item);
 static ENGINE_ERROR_CODE mock_get(ENGINE_HANDLE* handle,
                                   const void* cookie,
                                   item** item,
@@ -57,7 +58,7 @@ static ENGINE_ERROR_CODE mock_get_stats(ENGINE_HANDLE* handle,
                                         const char *stat_key,
                                         int nkey,
                                         ADD_STAT add_stat);
-static void mock_reset_stats(ENGINE_HANDLE* handle);
+static void mock_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     const void *cookie,
                                     item* item,
@@ -218,7 +219,8 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static void mock_item_release(ENGINE_HANDLE* handle, item* item) {
+static void mock_item_release(ENGINE_HANDLE* handle,
+                              const void *cookie, item* item) {
     free(item);
 }
 
@@ -272,7 +274,7 @@ static ENGINE_ERROR_CODE mock_flush(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static void mock_reset_stats(ENGINE_HANDLE* handle) {
+static void mock_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     // TODO:  Implement
 }
 
