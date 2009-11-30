@@ -154,8 +154,8 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     proxied_engine_t *rv = NULL;
     struct bucket_engine *e = (struct bucket_engine*)h;
-    if (cookie) {
-        const char *user = e->server->get_auth_data(cookie);
+    const char *user = e->server->get_auth_data(cookie);
+    if (user) {
         rv = genhash_find(e->engines, user, strlen(user));
         if (!rv) {
             rv = create_bucket(e, user);
