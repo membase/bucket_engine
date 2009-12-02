@@ -17,6 +17,7 @@ typedef union proxied_engine {
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     bool initialized;
+    bool has_default;
     char *proxied_engine_path;
     proxied_engine_t default_engine;
     genhash_t *engines;
@@ -399,6 +400,9 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
             { .key = "engine",
               .datatype = DT_STRING,
               .value.dt_string = &me->proxied_engine_path },
+            { .key = "default",
+              .datatype = DT_BOOL,
+              .value.dt_bool = &me->has_default },
             { .key = "config_file",
               .datatype = DT_CONFIGFILE },
             { .key = NULL}
