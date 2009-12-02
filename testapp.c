@@ -324,20 +324,30 @@ static ENGINE_HANDLE_V1 *start_your_engines() {
 static int report_test(enum test_result r) {
     int rc = 0;
     char *msg = NULL;
+    bool color_enabled = getenv("TESTAPP_ENABLE_COLOR") != NULL;
+    int color = 0;
+    char color_str[8] = { 0 };
+    char *reset_color = "\033[m";
     switch(r) {
     case SUCCESS:
         msg="OK";
+        color = 32;
         break;
     case FAIL:
+        color = 31;
         msg="FAIL";
         rc = 1;
         break;
     case PENDING:
+        color = 33;
         msg = "PENDING";
         break;
     }
     assert(msg);
-    printf("%s\n", msg);
+    if (color_enabled) {
+        snprintf(color_str, sizeof(color_str), "\033[%dm", color);
+    }
+    printf("%s%s%s\n", color_str, msg, color_enabled ? reset_color : "");
     return rc;
 }
 
