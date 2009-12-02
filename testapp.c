@@ -292,6 +292,26 @@ static enum test_result test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return strncmp(info, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
 }
 
+static enum test_result test_create_bucket(ENGINE_HANDLE *h,
+                                           ENGINE_HANDLE_V1 *h1) {
+    return PENDING;
+}
+
+static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
+                                           ENGINE_HANDLE_V1 *h1) {
+    return PENDING;
+}
+
+static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
+                                           ENGINE_HANDLE_V1 *h1) {
+    return PENDING;
+}
+
+static enum test_result test_list_buckets(ENGINE_HANDLE *h,
+                                          ENGINE_HANDLE_V1 *h1) {
+    return PENDING;
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines() {
     const char *cfg = "engine=.libs/mock_engine.so";
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
@@ -332,6 +352,10 @@ int main(int argc, char **argv) {
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
         {"isolated arithmetic", test_arith},
+        {"create bucket", test_create_bucket},
+        {"delete bucket", test_delete_bucket},
+        {"expand bucket", test_expand_bucket},
+        {"list buckets", test_list_buckets},
         {NULL, NULL}
     };
 
