@@ -369,6 +369,7 @@ int main(int argc, char **argv) {
          test_no_default_storage,
          "engine=.libs/mock_engine.so;default=false"},
         {"distinct storage", test_two_engines},
+        {"distinct storage (no auto-create)", NULL},
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
         {"isolated arithmetic", test_arith},
@@ -382,9 +383,13 @@ int main(int argc, char **argv) {
     for (i = 0; tests[i].name; i++) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
-        ENGINE_HANDLE_V1 *h = start_your_engines(tests[i].cfg ?: DEFAULT_CONFIG);
-        rc += report_test(tests[i].tfun((ENGINE_HANDLE*)h, h));
-        h->destroy((ENGINE_HANDLE*)h);
+        if (tests[i].tfun) {
+            ENGINE_HANDLE_V1 *h = start_your_engines(tests[i].cfg ?: DEFAULT_CONFIG);
+            rc += report_test(tests[i].tfun((ENGINE_HANDLE*)h, h));
+            h->destroy((ENGINE_HANDLE*)h);
+        } else {
+            rc += report_test(PENDING);
+        }
     }
 
     return rc;
