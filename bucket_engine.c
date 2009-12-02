@@ -239,7 +239,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         fprintf(stderr, "Failed to open library \"%s\": %s\n",
                 se->proxied_engine_path ? se->proxied_engine_path : "self",
                 msg ? msg : "unknown error");
-        return false;
+        return ENGINE_FAILED;
     }
 
     void *symbol = dlsym(bucket_engine.default_engine.v0, "create_instance");
@@ -248,7 +248,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                 "Could not find symbol \"create_instance\" in %s: %s\n",
                 se->proxied_engine_path ? se->proxied_engine_path : "self",
                 dlerror());
-        return false;
+        return ENGINE_FAILED;
     }
     union tronds_hack {
         CREATE_INSTANCE create;
