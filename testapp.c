@@ -6,6 +6,8 @@
 
 #include "memcached/engine.h"
 
+#define DEFAULT_CONFIG "engine=.libs/mock_engine.so"
+
 enum test_result {
     SUCCESS,
     FAIL,
@@ -15,6 +17,7 @@ enum test_result {
 struct test {
     const char *name;
     enum test_result (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
+    const char *cfg;
 };
 
 static const char* get_server_version() {
@@ -151,6 +154,11 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     if (outitem) {
         *outitem = item;
     }
+}
+
+static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
+                                                ENGINE_HANDLE_V1 *h1) {
+    return PENDING;
 }
 
 static enum test_result test_default_storage(ENGINE_HANDLE *h,
@@ -312,8 +320,7 @@ static enum test_result test_list_buckets(ENGINE_HANDLE *h,
     return PENDING;
 }
 
-static ENGINE_HANDLE_V1 *start_your_engines() {
-    const char *cfg = "engine=.libs/mock_engine.so";
+static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
     assert(h);
@@ -358,6 +365,9 @@ int main(int argc, char **argv) {
     struct test tests[] = {
         {"get info", test_get_info},
         {"default storage", test_default_storage},
+        {"no default storage",
+         test_no_default_storage,
+         "engine=.libs/mock_engine.so;default=false"},
         {"distinct storage", test_two_engines},
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
@@ -372,7 +382,7 @@ int main(int argc, char **argv) {
     for (i = 0; tests[i].name; i++) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
-        ENGINE_HANDLE_V1 *h = start_your_engines();
+        ENGINE_HANDLE_V1 *h = start_your_engines(tests[i].cfg ?: DEFAULT_CONFIG);
         rc += report_test(tests[i].tfun((ENGINE_HANDLE*)h, h));
         h->destroy((ENGINE_HANDLE*)h);
     }
