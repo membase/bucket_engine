@@ -6,9 +6,15 @@
 
 #include "memcached/engine.h"
 
+enum test_result {
+    SUCCESS,
+    FAIL,
+    PENDING
+};
+
 struct test {
     const char *name;
-    void (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
+    enum test_result (*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
 };
 
 static const char* get_server_version() {
@@ -147,7 +153,8 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     }
 }
 
-static void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_default_storage(ENGINE_HANDLE *h,
+                                             ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
     const void *cookie = NULL;
     char *key = "somekey";
@@ -169,9 +176,12 @@ static void test_default_storage(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(rv == ENGINE_SUCCESS);
 
     assert_item_eq(h, h1, item, fetched_item);
+
+    return SUCCESS;
 }
 
-static void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_two_engines(ENGINE_HANDLE *h,
+                                         ENGINE_HANDLE_V1 *h1) {
     item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
@@ -190,9 +200,12 @@ static void test_two_engines(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(!item_eq(h, h1, fetched_item1, fetched_item2));
     assert_item_eq(h, h1, item1, fetched_item1);
     assert_item_eq(h, h1, item2, fetched_item2);
+
+    return SUCCESS;
 }
 
-static void test_two_engines_del(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_two_engines_del(ENGINE_HANDLE *h,
+                                             ENGINE_HANDLE_V1 *h1) {
     item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
@@ -214,9 +227,12 @@ static void test_two_engines_del(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(rv == ENGINE_SUCCESS);
 
     assert_item_eq(h, h1, item2, fetched_item2);
+
+    return SUCCESS;
 }
 
-static void test_two_engines_flush(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_two_engines_flush(ENGINE_HANDLE *h,
+                                               ENGINE_HANDLE_V1 *h1) {
     item *item1, *item2, *fetched_item1 = NULL, *fetched_item2 = NULL;
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
@@ -238,9 +254,11 @@ static void test_two_engines_flush(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(rv == ENGINE_SUCCESS);
 
     assert_item_eq(h, h1, item2, fetched_item2);
+
+    return SUCCESS;
 }
 
-static void test_arith(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_arith(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     const void *cookie1 = "user1", *cookie2 = "user2";
     char *key = "somekey";
     uint64_t result = 0, cas = 0;
@@ -265,11 +283,13 @@ static void test_arith(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(rv == ENGINE_SUCCESS);
     assert(cas == 0);
     assert(result == 2);
+
+    return SUCCESS;
 }
 
-static void test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     const char *info = h1->get_info(h);
-    assert(strncmp(info, "Bucket engine", 13) == 0);
+    return strncmp(info, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
 }
 
 static ENGINE_HANDLE_V1 *start_your_engines() {
@@ -281,8 +301,29 @@ static ENGINE_HANDLE_V1 *start_your_engines() {
     return h;
 }
 
+static int report_test(enum test_result r) {
+    int rc = 0;
+    char *msg = NULL;
+    switch(r) {
+    case SUCCESS:
+        msg="OK";
+        break;
+    case FAIL:
+        msg="FAIL";
+        rc = 1;
+        break;
+    case PENDING:
+        msg = "PENDING";
+        break;
+    }
+    assert(msg);
+    printf("%s\n", msg);
+    return rc;
+}
+
 int main(int argc, char **argv) {
     int i = 0;
+    int rc = 0;
 
     struct test tests[] = {
         {"get info", test_get_info},
@@ -298,10 +339,9 @@ int main(int argc, char **argv) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
         ENGINE_HANDLE_V1 *h = start_your_engines();
-        tests[i].tfun((ENGINE_HANDLE*)h, h);
+        rc += report_test(tests[i].tfun((ENGINE_HANDLE*)h, h));
         h->destroy((ENGINE_HANDLE*)h);
-        printf("OK\n");
     }
 
-    return 0;
+    return rc;
 }
