@@ -180,6 +180,9 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
 
     assert_item_eq(h, h1, item, fetched_item);
 
+    // no effect, but increases coverage.
+    h1->reset_stats(h, cookie);
+
     return SUCCESS;
 
 }
@@ -190,6 +193,7 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
     const void *cookie = "autouser";
     char *key = "somekey";
     char *value = "some value";
+    uint64_t cas_out = 0, result = 0;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
@@ -203,6 +207,16 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
 
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_KEY_ENOENT);
+
+    rv = h1->remove(h, cookie, item);
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    rv = h1->arithmetic(h, cookie, key, strlen(key),
+                        true, true, 1, 1, 0, &cas_out, &result);
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    // no effect, but increases coverage.
+    h1->reset_stats(h, cookie);
 
     return SUCCESS;
 }
