@@ -156,11 +156,6 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     }
 }
 
-static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
-                                                ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
-}
-
 static enum test_result test_default_storage(ENGINE_HANDLE *h,
                                              ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
@@ -184,6 +179,28 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     assert_item_eq(h, h1, item, fetched_item);
+
+    return SUCCESS;
+
+}
+
+static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
+                                                ENGINE_HANDLE_V1 *h1) {
+    item *item = NULL, *fetched_item;
+    const void *cookie = NULL;
+    char *key = "somekey";
+    char *value = "some value";
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
+
+    rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
+    assert(rv == ENGINE_KEY_ENOENT);
+
 
     return SUCCESS;
 }
