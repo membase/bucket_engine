@@ -488,6 +488,24 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     return create_bucket(e, keyz) ? ENGINE_SUCCESS : ENGINE_FAILED;
 }
 
+static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
+                                              const void* cookie,
+                                              protocol_binary_request_header *request,
+                                              ADD_RESPONSE response) {
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    protocol_binary_request_delete_bucket *breq =
+        (protocol_binary_request_delete_bucket*)request;
+
+    EXTRACT_KEY(breq, keyz);
+
+    ENGINE_ERROR_CODE rv = genhash_delete_all(e->engines, keyz, strlen(keyz)) > 0
+        ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
+
+    assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
+
+    return rv;
+}
+
 static bool authorized(ENGINE_HANDLE* handle,
                        const void* cookie) {
     // XXX:  May not be true.
@@ -507,6 +525,9 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     switch(request->request.opcode) {
     case CREATE_BUCKET:
         rv = handle_create_bucket(handle, cookie, request, response);
+        break;
+    case DELETE_BUCKET:
+        rv = handle_delete_bucket(handle, cookie, request, response);
         break;
     }
     return rv;

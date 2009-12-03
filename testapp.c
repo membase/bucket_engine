@@ -398,7 +398,36 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
 
 static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                                            ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
+    const char *adm_cookie = "admin", *other_cookie = "someuser";
+    const char *key = "somekey";
+    const char *value = "the value";
+    item *item;
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie);
+    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    assert(rv == ENGINE_SUCCESS);
+
+    rv = h1->allocate(h, other_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+
+    pkt = create_packet(DELETE_BUCKET, other_cookie);
+    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    assert(rv == ENGINE_SUCCESS);
+
+    pkt = create_packet(DELETE_BUCKET, other_cookie);
+    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    rv = h1->allocate(h, other_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
+
+    return ENGINE_SUCCESS;
 }
 
 static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
@@ -467,7 +496,8 @@ int main(int argc, char **argv) {
         {"isolated arithmetic", test_arith},
         {"create bucket", test_create_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
-        {"delete bucket", test_delete_bucket},
+        {"delete bucket", test_delete_bucket,
+         "engine=.libs/mock_engine.so;auto_create=false"},
         {"expand bucket", test_expand_bucket},
         {"list buckets", test_list_buckets},
         {"admin verification", NULL},
