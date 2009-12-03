@@ -470,6 +470,7 @@ int main(int argc, char **argv) {
         {"delete bucket", test_delete_bucket},
         {"expand bucket", test_expand_bucket},
         {"list buckets", test_list_buckets},
+        {"admin verification", NULL},
         {NULL, NULL}
     };
 
