@@ -478,6 +478,14 @@ static int report_test(enum test_result r) {
     return rc;
 }
 
+static int run_test(struct test test) {
+    int rc = 0;
+    ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
+    rc = report_test(test.tfun((ENGINE_HANDLE*)h, h));
+    h->destroy((ENGINE_HANDLE*)h);
+    return rc;
+}
+
 int main(int argc, char **argv) {
     int i = 0;
     int rc = 0;
@@ -508,9 +516,7 @@ int main(int argc, char **argv) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
         if (tests[i].tfun) {
-            ENGINE_HANDLE_V1 *h = start_your_engines(tests[i].cfg ?: DEFAULT_CONFIG);
-            rc += report_test(tests[i].tfun((ENGINE_HANDLE*)h, h));
-            h->destroy((ENGINE_HANDLE*)h);
+            rc += run_test(tests[i]);
         } else {
             rc += report_test(PENDING);
         }
