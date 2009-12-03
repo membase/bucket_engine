@@ -17,7 +17,6 @@ typedef union proxied_engine {
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     bool initialized;
-    bool has_default;
     bool auto_create;
     char *proxied_engine_path;
     char *default_engine_path;
