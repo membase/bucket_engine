@@ -163,7 +163,7 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
             rv = create_bucket(e, user);
         }
     } else {
-        rv = &e->default_engine;
+        rv = e->default_engine.v0 ? &e->default_engine : NULL;
     }
     return rv;
 }
@@ -296,7 +296,9 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     // Initialization is useful to know if we *can* start up an
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
-    se->default_engine.v0 = load_engine(bucket_engine.default_engine_path, "", NULL);
+    if (se->default_engine_path) {
+        se->default_engine.v0 = load_engine(se->default_engine_path, "", NULL);
+    }
 
     se->initialized = true;
     return ENGINE_SUCCESS;
@@ -307,7 +309,10 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
 
     if (se->initialized) {
         proxied_engine_t *e = get_engine(handle, NULL);
-        e->v1->destroy(e->v0);
+        if (e) {
+            e->v1->destroy(e->v0);
+            e->v0 = NULL;
+        }
         genhash_free(se->engines);
         se->engines = NULL;
         se->default_engine_path = NULL;
@@ -454,6 +459,10 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
 
     if (me->default_engine_path == NULL) {
         me->default_engine_path = me->proxied_engine_path;
+    }
+
+    if (strcasecmp(me->default_engine_path, "null") == 0) {
+        me->default_engine_path = NULL;
     }
 
     return ret;
