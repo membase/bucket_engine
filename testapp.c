@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <dlfcn.h>
 #include <assert.h>
+
+#include "bucket_engine.h"
 
 #include "memcached/engine.h"
 
@@ -354,9 +357,43 @@ static enum test_result test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return strncmp(info, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
 }
 
+static void* create_packet(uint8_t opcode, const char *key) {
+    void *pkt_raw = calloc(1,
+                           sizeof(protocol_binary_request_header)
+                           + strlen(key));
+    assert(pkt_raw);
+    protocol_binary_request_header *req =
+        (protocol_binary_request_header*)pkt_raw;
+    req->request.opcode = opcode;
+    req->request.keylen = strlen(key);
+    memcpy(pkt_raw + sizeof(protocol_binary_request_header),
+           key, strlen(key));
+    return pkt_raw;
+}
+
 static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                                            ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
+    const char *adm_cookie = "admin", *other_cookie = "someuser";
+    const char *key = "somekey";
+    const char *value = "the value";
+    item *item;
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    rv = h1->allocate(h, adm_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
+
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie);
+    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    assert(rv == ENGINE_SUCCESS);
+
+    rv = h1->allocate(h, other_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+
+    return ENGINE_SUCCESS;
 }
 
 static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
@@ -428,7 +465,8 @@ int main(int argc, char **argv) {
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
         {"isolated arithmetic", test_arith},
-        {"create bucket", test_create_bucket},
+        {"create bucket", test_create_bucket,
+         "engine=.libs/mock_engine.so;auto_create=false"},
         {"delete bucket", test_delete_bucket},
         {"expand bucket", test_expand_bucket},
         {"list buckets", test_list_buckets},

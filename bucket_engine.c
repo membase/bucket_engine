@@ -6,6 +6,7 @@
 
 #include "config_parser.h"
 #include "genhash.h"
+#include "bucket_engine.h"
 
 #include <memcached/engine.h>
 
@@ -468,12 +469,47 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
     return ret;
 }
 
+#define EXTRACT_KEY(req, out)                                       \
+    char keyz[req->message.header.request.keylen + 1];              \
+    memcpy(keyz, ((void*)request) + sizeof(req->message.header),    \
+           req->message.header.request.keylen);                     \
+    keyz[req->message.header.request.keylen] = 0x00;
+
+static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
+                                       const void* cookie,
+                                       protocol_binary_request_header *request,
+                                       ADD_RESPONSE response) {
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    protocol_binary_request_create_bucket *breq =
+        (protocol_binary_request_create_bucket*)request;
+
+    EXTRACT_KEY(breq, keyz);
+
+    return create_bucket(e, keyz) ? ENGINE_SUCCESS : ENGINE_FAILED;
+}
+
+static bool authorized(ENGINE_HANDLE* handle,
+                       const void* cookie) {
+    // XXX:  May not be true.
+    return true;
+}
+
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 protocol_binary_request_header *request,
                                                 ADD_RESPONSE response)
 {
-    return ENGINE_ENOTSUP;
+    if (!authorized(handle, cookie)) {
+        return ENGINE_ENOTSUP;
+    }
+
+    ENGINE_ERROR_CODE rv = ENGINE_ENOTSUP;
+    switch(request->request.opcode) {
+    case CREATE_BUCKET:
+        rv = handle_create_bucket(handle, cookie, request, response);
+        break;
+    }
+    return rv;
 }
 
 static char* item_get_data(const item* item) {
