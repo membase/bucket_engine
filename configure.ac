@@ -10,6 +10,8 @@ AM_PROG_CC_C_O
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
 
+AC_SEARCH_LIBS(dlopen, dl)
+
 AC_ARG_ENABLE(coverage,
   [AS_HELP_STRING([--enable-coverage], [Enable code coverage])])
 
