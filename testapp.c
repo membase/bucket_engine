@@ -184,6 +184,29 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
 
 }
 
+static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
+                                                       ENGINE_HANDLE_V1 *h1) {
+    item *item = NULL, *fetched_item;
+    const void *cookie = "autouser";
+    char *key = "somekey";
+    char *value = "some value";
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
+
+    rv = h1->store(h, cookie, item, 0, OPERATION_SET);
+    assert(rv == ENGINE_NOT_STORED);
+
+    rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    return SUCCESS;
+}
+
 static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
                                                 ENGINE_HANDLE_V1 *h1) {
     item *item = NULL, *fetched_item;
@@ -386,7 +409,8 @@ int main(int argc, char **argv) {
          test_no_default_storage,
          "engine=.libs/mock_engine.so;default=.libs/null_engine.so"},
         {"distinct storage", test_two_engines},
-        {"distinct storage (no auto-create)", NULL},
+        {"distinct storage (no auto-create)", test_two_engines_no_autocreate,
+         "engine=.libs/mock_engine.so;auto_create=false"},
         {"delete from one of two nodes", test_two_engines_del},
         {"flush from one of two nodes", test_two_engines_flush},
         {"isolated arithmetic", test_arith},

@@ -18,6 +18,7 @@ struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     bool initialized;
     bool has_default;
+    bool auto_create;
     char *proxied_engine_path;
     char *default_engine_path;
     proxied_engine_t default_engine;
@@ -159,13 +160,12 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
     const char *user = e->server->get_auth_data(cookie);
     if (user) {
         rv = genhash_find(e->engines, user, strlen(user));
-        if (!rv) {
+        if (!rv && e->auto_create) {
             rv = create_bucket(e, user);
         }
     } else {
         rv = &e->default_engine;
     }
-    assert(rv);
     return rv;
 }
 
@@ -325,22 +325,33 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const int flags,
                                               const rel_time_t exptime) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->allocate(e->v0, cookie, item, key,
-                           nkey, nbytes, flags, exptime);
+    if (e) {
+        return e->v1->allocate(e->v0, cookie, item, key,
+                               nkey, nbytes, flags, exptime);
+    } else {
+        return ENGINE_ENOMEM;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             item* item) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->remove(e->v0, cookie, item);
+    if (e) {
+        return e->v1->remove(e->v0, cookie, item);
+    } else {
+        return ENGINE_KEY_ENOENT;
+    }
 }
 
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    e->v1->release(e->v0, cookie, item);
+    assert(e);
+    if (e) {
+        e->v1->release(e->v0, cookie, item);
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
@@ -349,7 +360,11 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* key,
                                     const int nkey) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->get(e->v0, cookie, item, key, nkey);
+    if (e) {
+        return e->v1->get(e->v0, cookie, item, key, nkey);
+    } else {
+        return ENGINE_KEY_ENOENT;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
@@ -359,7 +374,11 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           ADD_STAT add_stat)
 {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
+    if (e) {
+        return e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
+    } else {
+        return ENGINE_FAILED;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
@@ -368,7 +387,11 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->store(e->v0, cookie, item, cas, operation);
+    if (e) {
+        return e->v1->store(e->v0, cookie, item, cas, operation);
+    } else {
+        return ENGINE_NOT_STORED;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
@@ -383,9 +406,13 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            uint64_t *cas,
                                            uint64_t *result) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->arithmetic(e->v0, cookie, key, nkey,
-                             increment, create, delta, initial,
-                             exptime, cas, result);
+    if (e) {
+        return e->v1->arithmetic(e->v0, cookie, key, nkey,
+                                 increment, create, delta, initial,
+                                 exptime, cas, result);
+    } else {
+        return ENGINE_KEY_ENOENT;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
@@ -396,12 +423,16 @@ static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
 
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    e->v1->reset_stats(e->v0, cookie);
+    if (e) {
+        e->v1->reset_stats(e->v0, cookie);
+    }
 }
 
 static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
                                                  const char *cfg_str) {
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+
+    me->auto_create = true;
 
     if (cfg_str != NULL) {
         struct config_item items[] = {
@@ -411,6 +442,9 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
             { .key = "default",
               .datatype = DT_STRING,
               .value.dt_string = &me->default_engine_path },
+            { .key = "auto_create",
+              .datatype = DT_BOOL,
+              .value.dt_bool = &me->auto_create },
             { .key = "config_file",
               .datatype = DT_CONFIGFILE },
             { .key = NULL}
