@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
         {"default storage", test_default_storage},
         {"no default storage",
          test_no_default_storage,
-         "engine=.libs/mock_engine.so;default=false"},
+         "engine=.libs/mock_engine.so;default=.libs/null_engine.so"},
         {"distinct storage", test_two_engines},
         {"distinct storage (no auto-create)", NULL},
         {"delete from one of two nodes", test_two_engines_del},

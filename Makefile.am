@@ -7,6 +7,11 @@ bucket_engine_la_SOURCES= bucket_engine.c config_parser.c config_parser.h \
 bucket_engine_la_CFLAGS = $(common_CFLAGS)
 bucket_engine_la_LDFLAGS= -module -dynamic $(common_LDFLAGS)
 
+lib_LTLIBRARIES += null_engine.la
+null_engine_la_SOURCES = null_engine.c
+null_engine_la_CFLAGS = $(common_CFLAGS)
+null_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere $(common_LDFLAGS)
+
 noinst_LTLIBRARIES = mock_engine.la
 mock_engine_la_SOURCES = mock_engine.c genhash.c genhash.h
 mock_engine_la_CFLAGS = $(common_CFLAGS)

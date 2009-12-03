@@ -19,6 +19,7 @@ struct bucket_engine {
     bool initialized;
     bool has_default;
     char *proxied_engine_path;
+    char *default_engine_path;
     proxied_engine_t default_engine;
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
@@ -208,6 +209,66 @@ static void engine_free(void* ob) {
     free(ob);
 }
 
+static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
+                                  CREATE_INSTANCE *create_out) {
+    ENGINE_HANDLE *engine = NULL;
+    /* Hack to remove the warning from C99 */
+    union my_hack {
+        CREATE_INSTANCE create;
+        void* voidptr;
+    } my_create = {.create = NULL };
+
+    void *handle = dlopen(soname, RTLD_LAZY | RTLD_LOCAL);
+    if (handle == NULL) {
+        const char *msg = dlerror();
+        fprintf(stderr, "Failed to open library \"%s\": %s\n",
+                soname ? soname : "self",
+                msg ? msg : "unknown error");
+        return NULL;
+    }
+
+    void *symbol = dlsym(handle, "create_instance");
+    if (symbol == NULL) {
+        fprintf(stderr,
+                "Could not find symbol \"create_instance\" in %s: %s\n",
+                soname ? soname : "self",
+                dlerror());
+        return NULL;
+    }
+    my_create.voidptr = symbol;
+    if (create_out) {
+        *create_out = my_create.create;
+    }
+
+    /* request a instance with protocol version 1 */
+    ENGINE_ERROR_CODE error = (*my_create.create)(1,
+                                                  bucket_engine.get_server_api,
+                                                  &engine);
+
+    if (error != ENGINE_SUCCESS || engine == NULL) {
+        fprintf(stderr, "Failed to create instance. Error code: %d\n", error);
+        dlclose(handle);
+        return NULL;
+    }
+
+    if (engine->interface == 1) {
+        ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
+        if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
+            v1->destroy(engine);
+            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
+                    error);
+            dlclose(handle);
+            return NULL;
+        }
+    } else {
+        fprintf(stderr, "Unsupported interface level\n");
+        dlclose(handle);
+        return NULL;
+    }
+
+    return engine;
+}
+
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str) {
     struct bucket_engine* se = get_handle(handle);
@@ -233,61 +294,20 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_ENOMEM;
     }
 
-    bucket_engine.default_engine.v0 = dlopen(se->proxied_engine_path,
-                                             RTLD_LAZY | RTLD_LOCAL);
-    if (bucket_engine.default_engine.v0 == NULL) {
-        const char *msg = dlerror();
-        fprintf(stderr, "Failed to open library \"%s\": %s\n",
-                se->proxied_engine_path ? se->proxied_engine_path : "self",
-                msg ? msg : "unknown error");
+    // Try loading an engine just to see if we can.
+    ENGINE_HANDLE *eh = load_engine(se->proxied_engine_path, "",
+                                    &se->new_engine);
+    if (!eh) {
         return ENGINE_FAILED;
     }
+    // Immediately shut it down.
+    ENGINE_HANDLE_V1 *ehv1 = (ENGINE_HANDLE_V1*)eh;
+    ehv1->destroy(eh);
 
-    void *symbol = dlsym(bucket_engine.default_engine.v0, "create_instance");
-    if (symbol == NULL) {
-        fprintf(stderr,
-                "Could not find symbol \"create_instance\" in %s: %s\n",
-                se->proxied_engine_path ? se->proxied_engine_path : "self",
-                dlerror());
-        return ENGINE_FAILED;
-    }
-    union tronds_hack {
-        CREATE_INSTANCE create;
-        void* voidptr;
-    } my_create = {.create = NULL };
-
-    my_create.voidptr = symbol;
-    bucket_engine.new_engine = *my_create.create;
-
-    /* request a instance with protocol version 1 */
-    ENGINE_HANDLE *engine = pe_v0(handle, NULL);
-    ENGINE_ERROR_CODE error = bucket_engine.new_engine(1,
-                                                       bucket_engine.get_server_api,
-                                                       &engine);
-
-    if (error != ENGINE_SUCCESS || engine == NULL) {
-        fprintf(stderr, "Failed to create instance. Error code: %d\n", error);
-        dlclose(handle);
-        return false;
-    }
-
-    if (engine->interface == 1) {
-        bucket_engine.default_engine.v0 = engine;
-        bucket_engine.default_engine.v1 = (ENGINE_HANDLE_V1*)engine;
-        if (bucket_engine.default_engine.v1->initialize(engine, config_str)
-            != ENGINE_SUCCESS) {
-
-            bucket_engine.default_engine.v1->destroy(engine);
-            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                    error);
-            dlclose(handle);
-            return ENGINE_FAILED;
-        }
-    } else {
-        fprintf(stderr, "Unsupported interface level\n");
-        dlclose(handle);
-        return ENGINE_ENOTSUP;
-    }
+    // Initialization is useful to know if we *can* start up an
+    // engine, but we check flags here to see if we should have and
+    // shut it down if not.
+    se->default_engine.v0 = load_engine(bucket_engine.default_engine_path, "", NULL);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
@@ -300,6 +320,7 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         pe_v1(handle, NULL)->destroy(pe_v0(handle, NULL));
         genhash_free(se->engines);
         se->engines = NULL;
+        se->default_engine_path = NULL;
         se->initialized = false;
     }
 }
@@ -401,14 +422,18 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
               .datatype = DT_STRING,
               .value.dt_string = &me->proxied_engine_path },
             { .key = "default",
-              .datatype = DT_BOOL,
-              .value.dt_bool = &me->has_default },
+              .datatype = DT_STRING,
+              .value.dt_string = &me->default_engine_path },
             { .key = "config_file",
               .datatype = DT_CONFIGFILE },
             { .key = NULL}
         };
 
         ret = parse_config(cfg_str, items, stderr);
+    }
+
+    if (me->default_engine_path == NULL) {
+        me->default_engine_path = me->proxied_engine_path;
     }
 
     return ret;
