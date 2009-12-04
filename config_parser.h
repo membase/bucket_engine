@@ -1,6 +1,7 @@
 #ifndef CONFIG_PARSER_H
 #define CONFIG_PARSER_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
