@@ -475,7 +475,19 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    return create_bucket(e, keyz) ? ENGINE_SUCCESS : ENGINE_FAILED;
+    bool worked = create_bucket(e, keyz) != NULL;
+
+    if (worked) {
+        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
+    } else {
+        const char *msg = "Error creating bucket";
+        response(msg, strlen(msg),
+                 "", 0, "", 0,
+                 0, PROTOCOL_BINARY_RESPONSE_NOT_STORED,
+                 0, cookie);
+    }
+
+    return worked ? ENGINE_SUCCESS : ENGINE_FAILED;
 }
 
 static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
@@ -492,6 +504,16 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 
     assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
+
+    if (rv == ENGINE_SUCCESS) {
+        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
+    } else {
+        const char *msg = "Not found.";
+        response(msg, strlen(msg),
+                 "", 0, "", 0,
+                 0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                 0, cookie);
+    }
 
     return rv;
 }

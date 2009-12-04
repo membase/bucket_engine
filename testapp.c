@@ -11,6 +11,8 @@
 
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin"
 
+uint8_t last_status = 0;
+
 enum test_result {
     SUCCESS,
     FAIL,
@@ -54,6 +56,15 @@ static void *get_server_api(int interface)
     }
 
     return &server_api;
+}
+
+bool add_response(const void *key, uint16_t keylen,
+                  const void *ext, uint8_t extlen,
+                  const void *body, uint32_t bodylen,
+                  uint8_t datatype, uint16_t status,
+                  uint64_t cas, const void *cookie) {
+    last_status = status;
+    return true;
 }
 
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
@@ -385,8 +396,9 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_ENOMEM);
 
     void *pkt = create_packet(CREATE_BUCKET, other_cookie);
-    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
 
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
@@ -402,18 +414,19 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
 
     // Test with no user.
     void *pkt = create_packet(CREATE_BUCKET, "newbucket");
-    rv = h1->unknown_command(h, NULL, pkt, NULL);
+    rv = h1->unknown_command(h, NULL, pkt, add_response);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with non-admin
     pkt = create_packet(CREATE_BUCKET, "newbucket");
-    rv = h1->unknown_command(h, "notadmin", pkt, NULL);
+    rv = h1->unknown_command(h, "notadmin", pkt, add_response);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with admin
     pkt = create_packet(CREATE_BUCKET, "newbucket");
-    rv = h1->unknown_command(h, "admin", pkt, NULL);
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
 
     return SUCCESS;
 }
@@ -428,8 +441,9 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     void *pkt = create_packet(CREATE_BUCKET, other_cookie);
-    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
 
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
@@ -437,12 +451,13 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     pkt = create_packet(DELETE_BUCKET, other_cookie);
-    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
 
     pkt = create_packet(DELETE_BUCKET, other_cookie);
-    rv = h1->unknown_command(h, adm_cookie, pkt, NULL);
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_KEY_ENOENT);
+    assert(last_status == ENGINE_KEY_ENOENT);
 
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
@@ -491,6 +506,7 @@ static int report_test(enum test_result r) {
 }
 
 static int run_test(struct test test) {
+    last_status = 0xff;
     int rc = 0;
     ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
     rc = report_test(test.tfun((ENGINE_HANDLE*)h, h));
