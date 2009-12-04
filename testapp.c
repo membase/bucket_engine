@@ -452,16 +452,6 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
-static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
-                                           ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
-}
-
-static enum test_result test_list_buckets(ENGINE_HANDLE *h,
-                                          ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
-}
-
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -531,8 +521,8 @@ int main(int argc, char **argv) {
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"delete bucket", test_delete_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
-        {"expand bucket", test_expand_bucket},
-        {"list buckets", test_list_buckets},
+        {"expand bucket", NULL},
+        {"list buckets", NULL},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };
