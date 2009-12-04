@@ -9,7 +9,7 @@
 
 #include "memcached/engine.h"
 
-#define DEFAULT_CONFIG "engine=.libs/mock_engine.so"
+#define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true"
 
 enum test_result {
     SUCCESS,
@@ -495,10 +495,10 @@ int main(int argc, char **argv) {
         {"default storage", test_default_storage},
         {"no default storage",
          test_no_default_storage,
-         "engine=.libs/mock_engine.so;default=null"},
+         "engine=.libs/mock_engine.so;default=false"},
         {"user storage with no default",
          test_two_engines,
-         "engine=.libs/mock_engine.so;default=null"},
+         "engine=.libs/mock_engine.so;default=false"},
         {"distinct storage", test_two_engines},
         {"distinct storage (no auto-create)", test_two_engines_no_autocreate,
          "engine=.libs/mock_engine.so;auto_create=false"},

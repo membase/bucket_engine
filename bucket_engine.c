@@ -18,9 +18,9 @@ typedef union proxied_engine {
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     bool initialized;
+    bool has_default;
     bool auto_create;
     char *proxied_engine_path;
-    char *default_engine_path;
     proxied_engine_t default_engine;
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
@@ -292,8 +292,8 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     // Initialization is useful to know if we *can* start up an
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
-    if (se->default_engine_path) {
-        se->default_engine.v0 = load_engine(se->default_engine_path, "", NULL);
+    if (se->has_default) {
+        se->default_engine.v0 = load_engine(se->proxied_engine_path, "", NULL);
     }
 
     se->initialized = true;
@@ -311,7 +311,6 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         }
         genhash_free(se->engines);
         se->engines = NULL;
-        se->default_engine_path = NULL;
         se->initialized = false;
     }
 }
@@ -440,8 +439,8 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
               .datatype = DT_STRING,
               .value.dt_string = &me->proxied_engine_path },
             { .key = "default",
-              .datatype = DT_STRING,
-              .value.dt_string = &me->default_engine_path },
+              .datatype = DT_BOOL,
+              .value.dt_bool = &me->has_default },
             { .key = "auto_create",
               .datatype = DT_BOOL,
               .value.dt_bool = &me->auto_create },
@@ -451,14 +450,6 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
         };
 
         ret = parse_config(cfg_str, items, stderr);
-    }
-
-    if (me->default_engine_path == NULL) {
-        me->default_engine_path = me->proxied_engine_path;
-    }
-
-    if (strcasecmp(me->default_engine_path, "null") == 0) {
-        me->default_engine_path = NULL;
     }
 
     return ret;
