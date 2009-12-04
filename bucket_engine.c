@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <string.h>
 #include <assert.h>
@@ -121,8 +122,19 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     return ENGINE_SUCCESS;
 }
 
+static bool has_valid_bucket_name(const char *n) {
+    bool rv = strlen(n) > 0;
+    for (; *n; n++) {
+        rv &= isalpha(*n) || isdigit(*n) || *n == '.';
+    }
+    return rv;
+}
+
 static proxied_engine_t *create_bucket(struct bucket_engine *e,
                                        const char *username) {
+    if (!has_valid_bucket_name(username)) {
+        return NULL;
+    }
     proxied_engine_t *pe = calloc(sizeof(proxied_engine_t), 1);
     assert(pe);
 
@@ -487,7 +499,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
                  0, cookie);
     }
 
-    return worked ? ENGINE_SUCCESS : ENGINE_FAILED;
+    return worked ? ENGINE_SUCCESS : ENGINE_NOT_STORED;
 }
 
 static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
@@ -568,8 +580,8 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
         p = tmp;
     }
 
-    add_response("", 0, "", 0, blist_txt, (sizeof(char) * n + len) - 1,
-                 0, 0, 0, cookie);
+    response("", 0, "", 0, blist_txt, (sizeof(char) * n + len) - 1,
+             0, 0, 0, cookie);
     free(blist_txt);
 
     return ENGINE_SUCCESS;

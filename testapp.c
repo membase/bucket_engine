@@ -477,6 +477,19 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
+                                                    ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, "bucket one");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_NOT_STORED);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
+
+    return SUCCESS;
+}
+
 static enum test_result test_list_buckets(ENGINE_HANDLE *h,
                                           ENGINE_HANDLE_V1 *h1) {
 
@@ -576,6 +589,7 @@ int main(int argc, char **argv) {
         {"isolated arithmetic", test_arith},
         {"create bucket", test_create_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
+        {"bucket name verification", test_bucket_name_validation},
         {"delete bucket", test_delete_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"expand bucket", NULL},
