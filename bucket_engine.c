@@ -85,12 +85,6 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 protocol_binary_request_header *request,
                                                 ADD_RESPONSE response);
-static char* item_get_data(const item* item);
-static char* item_get_key(const item* item);
-static void item_set_cas(item* item, uint64_t val);
-static uint64_t item_get_cas(const item* item);
-static uint8_t item_get_clsid(const item* item);
-
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -109,11 +103,6 @@ struct bucket_engine bucket_engine = {
         .arithmetic = bucket_arithmetic,
         .flush = bucket_flush,
         .unknown_command = bucket_unknown_command,
-        .item_get_cas = item_get_cas,
-        .item_set_cas = item_set_cas,
-        .item_get_key = item_get_key,
-        .item_get_data = item_get_data,
-        .item_get_clsid = item_get_clsid
     },
     .initialized = false,
 };
@@ -284,13 +273,19 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_ENOMEM;
     }
 
-    // Try loading an engine just to see if we can.
+    // Load the engine and find the pointers to the item functions
     ENGINE_HANDLE *eh = load_engine(se->proxied_engine_path, "",
                                     &se->new_engine);
     if (!eh) {
         return ENGINE_FAILED;
     }
-    // Immediately shut it down.
+    ENGINE_HANDLE_V1 *hv1 = (ENGINE_HANDLE_V1*)eh;
+    bucket_engine.engine.item_get_cas = hv1->item_get_cas;
+    bucket_engine.engine.item_set_cas = hv1->item_set_cas;
+    bucket_engine.engine.item_get_key = hv1->item_get_key;
+    bucket_engine.engine.item_get_data = hv1->item_get_data;
+    bucket_engine.engine.item_get_clsid = hv1->item_get_clsid;
+    // Shut it back down.
     ENGINE_HANDLE_V1 *ehv1 = (ENGINE_HANDLE_V1*)eh;
     ehv1->destroy(eh);
 
@@ -531,24 +526,4 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
         break;
     }
     return rv;
-}
-
-static char* item_get_data(const item* item) {
-    return bucket_engine.default_engine.v1->item_get_data(item);
-}
-
-static char* item_get_key(const item* item) {
-    return bucket_engine.default_engine.v1->item_get_key(item);
-}
-
-static void item_set_cas(item* item, uint64_t val) {
-    bucket_engine.default_engine.v1->item_set_cas(item, val);
-}
-
-static uint64_t item_get_cas(const item* item) {
-    return bucket_engine.default_engine.v1->item_get_cas(item);
-}
-
-static uint8_t item_get_clsid(const item* item) {
-    return bucket_engine.default_engine.v1->item_get_clsid(item);
 }
