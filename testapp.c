@@ -12,6 +12,7 @@
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin"
 
 uint8_t last_status = 0;
+char *last_body = NULL;
 
 enum test_result {
     SUCCESS,
@@ -64,6 +65,15 @@ bool add_response(const void *key, uint16_t keylen,
                   uint8_t datatype, uint16_t status,
                   uint64_t cas, const void *cookie) {
     last_status = status;
+    if (last_body) {
+        free(last_body);
+        last_body = NULL;
+    }
+    if (bodylen > 0) {
+        last_body = malloc(bodylen);
+        assert(last_body);
+        memcpy(last_body, body, bodylen);
+    }
     return true;
 }
 
@@ -467,6 +477,37 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_list_buckets(ENGINE_HANDLE *h,
+                                          ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Create two buckets first.
+
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    pkt = create_packet(CREATE_BUCKET, "bucket2");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    // Now go find all the buckets.
+    pkt = create_packet(LIST_BUCKETS, "");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    // Now verify the body looks alright.
+    assert(strcmp(last_body, "bucket1 bucket2") == 0
+           || strcmp(last_body, "bucket2 bucket1") == 0);
+
+    return SUCCESS;
+}
+
+
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -538,7 +579,7 @@ int main(int argc, char **argv) {
         {"delete bucket", test_delete_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"expand bucket", NULL},
-        {"list buckets", NULL},
+        {"list buckets", test_list_buckets},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };

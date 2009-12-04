@@ -518,6 +518,63 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
     return rv;
 }
 
+struct bucket_list {
+    char *name;
+    struct bucket_list *next;
+};
+
+static void add_engine(const void *key, size_t nkey,
+                  const void *val, size_t nval,
+                  void *arg) {
+    struct bucket_list **blist_ptr = (struct bucket_list **)arg;
+    struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
+    assert(n);
+    n->name = strdup(key);
+    assert(n->name);
+    n->next = *blist_ptr;
+    *blist_ptr = n;
+}
+
+static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             protocol_binary_request_header *request,
+                                             ADD_RESPONSE response) {
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+
+    // Accumulate the current bucket list.
+    struct bucket_list *blist = NULL;
+    genhash_iter(e->engines, add_engine, &blist);
+
+    int len = 0, n = 0;
+    struct bucket_list *p = blist;
+    while (p) {
+        len += strlen(p->name);
+        n++;
+        p = p->next;
+    }
+
+    // Now turn it into a space-separated list.
+    char *blist_txt = calloc(sizeof(char), n + len);
+    assert(blist_txt);
+    p = blist;
+    while (p) {
+        strcat(blist_txt, p->name);
+        if (p->next) {
+            strcat(blist_txt, " ");
+        }
+        free(p->name);
+        struct bucket_list *tmp = p->next;
+        free(p);
+        p = tmp;
+    }
+
+    add_response("", 0, "", 0, blist_txt, (sizeof(char) * n + len) - 1,
+                 0, 0, 0, cookie);
+    free(blist_txt);
+
+    return ENGINE_SUCCESS;
+}
+
 static bool authorized(ENGINE_HANDLE* handle,
                        const void* cookie) {
     struct bucket_engine *e = (struct bucket_engine*)handle;
@@ -547,6 +604,9 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
         break;
     case DELETE_BUCKET:
         rv = handle_delete_bucket(handle, cookie, request, response);
+        break;
+    case LIST_BUCKETS:
+        rv = handle_list_buckets(handle, cookie, request, response);
         break;
     }
     return rv;
