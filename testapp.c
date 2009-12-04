@@ -664,10 +664,12 @@ int main(int argc, char **argv) {
         {"bucket name verification", test_bucket_name_validation},
         {"delete bucket", test_delete_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
-        {"expand bucket", NULL},
+        {"expand bucket"},
         {"list buckets with none", test_list_buckets_none},
         {"list buckets with one", test_list_buckets_one},
         {"list buckets", test_list_buckets_two},
+        {"stats call"},
+        {"release call"},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };
