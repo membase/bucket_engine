@@ -490,8 +490,49 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
-static enum test_result test_list_buckets(ENGINE_HANDLE *h,
-                                          ENGINE_HANDLE_V1 *h1) {
+static enum test_result test_list_buckets_none(ENGINE_HANDLE *h,
+                                               ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Go find all the buckets.
+    void *pkt = create_packet(LIST_BUCKETS, "");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    // Now verify the body looks alright.
+    assert(last_body == NULL);
+
+    return SUCCESS;
+}
+
+static enum test_result test_list_buckets_one(ENGINE_HANDLE *h,
+                                              ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Create a bucket first.
+
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    // Now go find all the buckets.
+    pkt = create_packet(LIST_BUCKETS, "");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    // Now verify the body looks alright.
+    assert(strcmp(last_body, "bucket1") == 0);
+
+    return SUCCESS;
+}
+
+static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
+                                              ENGINE_HANDLE_V1 *h1) {
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
@@ -519,7 +560,6 @@ static enum test_result test_list_buckets(ENGINE_HANDLE *h,
 
     return SUCCESS;
 }
-
 
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
@@ -593,7 +633,9 @@ int main(int argc, char **argv) {
         {"delete bucket", test_delete_bucket,
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"expand bucket", NULL},
-        {"list buckets", test_list_buckets},
+        {"list buckets with none", test_list_buckets_none},
+        {"list buckets with one", test_list_buckets_one},
+        {"list buckets", test_list_buckets_two},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };

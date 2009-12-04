@@ -580,7 +580,11 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
         p = tmp;
     }
 
-    response("", 0, "", 0, blist_txt, (sizeof(char) * n + len) - 1,
+    // Response body will be "" in the case of an empty response.
+    // Otherwise, it needs to account for the trailing space of the
+    // above append code.
+    response("", 0, "", 0, blist_txt,
+             n == 0 ? 0 : (sizeof(char) * n + len) - 1,
              0, 0, 0, cookie);
     free(blist_txt);
 
