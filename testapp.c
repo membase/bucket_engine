@@ -393,7 +393,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    return ENGINE_SUCCESS;
+    return SUCCESS;
 }
 
 static enum test_result test_admin_user(ENGINE_HANDLE *h,
@@ -449,7 +449,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_ENOMEM);
 
-    return ENGINE_SUCCESS;
+    return SUCCESS;
 }
 
 static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
