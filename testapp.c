@@ -15,9 +15,9 @@ uint8_t last_status = 0;
 char *last_body = NULL;
 
 enum test_result {
-    SUCCESS,
-    FAIL,
-    PENDING
+    SUCCESS = 11,
+    FAIL    = 13,
+    PENDING = 19
 };
 
 struct test {
