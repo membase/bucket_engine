@@ -490,6 +490,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     size_t bodylen = breq->message.header.request.bodylen
         - breq->message.header.request.keylen;
+    assert(bodylen < (1 << 16)); // 64k ought to be enough for anybody
     char configz[bodylen + 1];
     memcpy(configz, ((void*)request) + sizeof(breq->message.header)
            + breq->message.header.request.keylen, bodylen);

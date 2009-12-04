@@ -170,8 +170,12 @@ static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
 
     assert(my_hash_ops.dupKey);
 
-    se->hashtbl = genhash_init(1, my_hash_ops);
-    assert(se->hashtbl);
+    if (strcmp(config_str, "no_alloc") != 0) {
+        se->hashtbl = genhash_init(1, my_hash_ops);
+        assert(se->hashtbl);
+    }
+
+    se->initialized = true;
 
     return ENGINE_SUCCESS;
 }
@@ -184,6 +188,10 @@ static void mock_destroy(ENGINE_HANDLE* handle) {
     }
 }
 
+static genhash_t *get_ht(ENGINE_HANDLE *handle) {
+    return get_handle(handle)->hashtbl;
+}
+
 static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             item **it,
@@ -193,8 +201,14 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
                                             const int flags,
                                             const rel_time_t exptime) {
 
-    size_t to_alloc = sizeof(item) + nkey + nbytes;
-    *it = calloc(to_alloc, 1);
+    // Only perform allocations if there's a hashtable.
+    if (get_ht(handle) != NULL) {
+        size_t to_alloc = sizeof(item) + nkey + nbytes;
+        *it = calloc(to_alloc, 1);
+    } else {
+        *it = NULL;
+    }
+    // If an allocation was requested *and* worked, fill and report success
     if (*it) {
         item *i = *it;
         i->exptime = exptime;
@@ -206,10 +220,6 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
     } else {
         return ENGINE_ENOMEM;
     }
-}
-
-static genhash_t *get_ht(ENGINE_HANDLE *handle) {
-    return get_handle(handle)->hashtbl;
 }
 
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,

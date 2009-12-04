@@ -388,7 +388,7 @@ static void* create_packet(uint8_t opcode, const char *key, const char *val) {
         (protocol_binary_request_header*)pkt_raw;
     req->request.opcode = opcode;
     req->request.keylen = strlen(key);
-    req->request.bodylen = req->request.keylen - strlen(val);
+    req->request.bodylen = req->request.keylen + strlen(val);
     memcpy(pkt_raw + sizeof(protocol_binary_request_header),
            key, strlen(key));
     memcpy(pkt_raw + sizeof(protocol_binary_request_header) + strlen(key),
@@ -418,6 +418,32 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
+
+    return SUCCESS;
+}
+
+static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
+                                                       ENGINE_HANDLE_V1 *h1) {
+    const char *adm_cookie = "admin", *other_cookie = "someuser";
+    const char *key = "somekey";
+    const char *value = "the value";
+    item *item;
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    rv = h1->allocate(h, adm_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
+
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie, "no_alloc");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    rv = h1->allocate(h, other_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_ENOMEM);
 
     return SUCCESS;
 }
@@ -632,6 +658,8 @@ int main(int argc, char **argv) {
         {"flush from one of two nodes", test_two_engines_flush},
         {"isolated arithmetic", test_arith},
         {"create bucket", test_create_bucket,
+         "engine=.libs/mock_engine.so;auto_create=false"},
+        {"create bucket with params", test_create_bucket_with_params,
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"bucket name verification", test_bucket_name_validation},
         {"delete bucket", test_delete_bucket,
