@@ -9,7 +9,7 @@
 
 #include "memcached/engine.h"
 
-#define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true"
+#define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin"
 
 enum test_result {
     SUCCESS,
@@ -396,6 +396,28 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     return ENGINE_SUCCESS;
 }
 
+static enum test_result test_admin_user(ENGINE_HANDLE *h,
+                                        ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    // Test with no user.
+    void *pkt = create_packet(CREATE_BUCKET, "newbucket");
+    rv = h1->unknown_command(h, NULL, pkt, NULL);
+    assert(rv == ENGINE_ENOTSUP);
+
+    // Test with non-admin
+    pkt = create_packet(CREATE_BUCKET, "newbucket");
+    rv = h1->unknown_command(h, "notadmin", pkt, NULL);
+    assert(rv == ENGINE_ENOTSUP);
+
+    // Test with admin
+    pkt = create_packet(CREATE_BUCKET, "newbucket");
+    rv = h1->unknown_command(h, "admin", pkt, NULL);
+    assert(rv == ENGINE_SUCCESS);
+
+    return SUCCESS;
+}
+
 static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                                            ENGINE_HANDLE_V1 *h1) {
     const char *adm_cookie = "admin", *other_cookie = "someuser";
@@ -511,7 +533,7 @@ int main(int argc, char **argv) {
          "engine=.libs/mock_engine.so;auto_create=false"},
         {"expand bucket", test_expand_bucket},
         {"list buckets", test_list_buckets},
-        {"admin verification", NULL},
+        {"admin verification", test_admin_user},
         {NULL, NULL}
     };
 

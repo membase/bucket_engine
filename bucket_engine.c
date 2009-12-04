@@ -21,6 +21,7 @@ struct bucket_engine {
     bool has_default;
     bool auto_create;
     char *proxied_engine_path;
+    char *admin_user;
     proxied_engine_t default_engine;
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
@@ -438,6 +439,9 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
             { .key = "engine",
               .datatype = DT_STRING,
               .value.dt_string = &me->proxied_engine_path },
+            { .key = "admin",
+              .datatype = DT_STRING,
+              .value.dt_string = &me->admin_user },
             { .key = "default",
               .datatype = DT_BOOL,
               .value.dt_bool = &me->has_default },
@@ -494,8 +498,15 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
 
 static bool authorized(ENGINE_HANDLE* handle,
                        const void* cookie) {
-    // XXX:  May not be true.
-    return true;
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    bool rv = false;
+    if (e->admin_user) {
+        const char *user = e->server->get_auth_data(cookie);
+        if (user) {
+            rv = strcmp(user, e->admin_user) == 0;
+        }
+    }
+    return rv;
 }
 
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
