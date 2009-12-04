@@ -378,17 +378,21 @@ static enum test_result test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return strncmp(info, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
 }
 
-static void* create_packet(uint8_t opcode, const char *key) {
+static void* create_packet(uint8_t opcode, const char *key, const char *val) {
     void *pkt_raw = calloc(1,
                            sizeof(protocol_binary_request_header)
-                           + strlen(key));
+                           + strlen(key)
+                           + strlen(val));
     assert(pkt_raw);
     protocol_binary_request_header *req =
         (protocol_binary_request_header*)pkt_raw;
     req->request.opcode = opcode;
     req->request.keylen = strlen(key);
+    req->request.bodylen = req->request.keylen - strlen(val);
     memcpy(pkt_raw + sizeof(protocol_binary_request_header),
            key, strlen(key));
+    memcpy(pkt_raw + sizeof(protocol_binary_request_header) + strlen(key),
+           val, strlen(val));
     return pkt_raw;
 }
 
@@ -405,7 +409,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_ENOMEM);
 
-    void *pkt = create_packet(CREATE_BUCKET, other_cookie);
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie, "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
@@ -423,17 +427,17 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     // Test with no user.
-    void *pkt = create_packet(CREATE_BUCKET, "newbucket");
+    void *pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, NULL, pkt, add_response);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with non-admin
-    pkt = create_packet(CREATE_BUCKET, "newbucket");
+    pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, "notadmin", pkt, add_response);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with admin
-    pkt = create_packet(CREATE_BUCKET, "newbucket");
+    pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
@@ -450,7 +454,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, other_cookie);
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie, "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
@@ -460,11 +464,11 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    pkt = create_packet(DELETE_BUCKET, other_cookie);
+    pkt = create_packet(DELETE_BUCKET, other_cookie, "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
 
-    pkt = create_packet(DELETE_BUCKET, other_cookie);
+    pkt = create_packet(DELETE_BUCKET, other_cookie, "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_KEY_ENOENT);
     assert(last_status == ENGINE_KEY_ENOENT);
@@ -482,7 +486,7 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket one");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket one", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_NOT_STORED);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
@@ -496,7 +500,7 @@ static enum test_result test_list_buckets_none(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     // Go find all the buckets.
-    void *pkt = create_packet(LIST_BUCKETS, "");
+    void *pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
@@ -514,13 +518,13 @@ static enum test_result test_list_buckets_one(ENGINE_HANDLE *h,
 
     // Create a bucket first.
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket1");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now go find all the buckets.
-    pkt = create_packet(LIST_BUCKETS, "");
+    pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
@@ -538,18 +542,18 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
 
     // Create two buckets first.
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket1");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    pkt = create_packet(CREATE_BUCKET, "bucket2");
+    pkt = create_packet(CREATE_BUCKET, "bucket2", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now go find all the buckets.
-    pkt = create_packet(LIST_BUCKETS, "");
+    pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);

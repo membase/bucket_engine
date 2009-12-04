@@ -131,7 +131,8 @@ static bool has_valid_bucket_name(const char *n) {
 }
 
 static proxied_engine_t *create_bucket(struct bucket_engine *e,
-                                       const char *username) {
+                                       const char *username,
+                                       const char *config) {
     if (!has_valid_bucket_name(username)) {
         return NULL;
     }
@@ -141,8 +142,7 @@ static proxied_engine_t *create_bucket(struct bucket_engine *e,
     ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &pe->v0);
     // This was already verified, but we'll check it anyway
     assert(pe->v0->interface == 1);
-    // XXX:  Need a default config_str
-    if (pe->v1->initialize(pe->v0, "") != ENGINE_SUCCESS) {
+    if (pe->v1->initialize(pe->v0, config) != ENGINE_SUCCESS) {
 
         pe->v1->destroy(pe->v0);
         fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
@@ -163,7 +163,8 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
     if (user) {
         rv = genhash_find(e->engines, user, strlen(user));
         if (!rv && e->auto_create) {
-            rv = create_bucket(e, user);
+            // XXX:  Need default config
+            rv = create_bucket(e, user, "");
         }
     } else {
         rv = e->default_engine.v0 ? &e->default_engine : NULL;
@@ -487,7 +488,14 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    bool worked = create_bucket(e, keyz) != NULL;
+    size_t bodylen = breq->message.header.request.bodylen
+        - breq->message.header.request.keylen;
+    char configz[bodylen + 1];
+    memcpy(configz, ((void*)request) + sizeof(breq->message.header)
+           + breq->message.header.request.keylen, bodylen);
+    configz[breq->message.header.request.keylen] = 0x00;
+
+    bool worked = create_bucket(e, keyz, configz) != NULL;
 
     if (worked) {
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
