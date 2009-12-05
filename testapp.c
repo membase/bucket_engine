@@ -638,6 +638,35 @@ static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_unknown_call(ENGINE_HANDLE *h,
+                                          ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    pkt = create_packet(0xfe, "somekey", "someval");
+    rv = h1->unknown_command(h, "someuser", pkt, add_response);
+    assert(rv == ENGINE_ENOTSUP);
+
+    return SUCCESS;
+}
+
+static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
+                                                    ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(0xfe, "somekey", "someval");
+    rv = h1->unknown_command(h, "someuser", pkt, add_response);
+    assert(rv == ENGINE_ENOTSUP);
+
+    return SUCCESS;
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -716,7 +745,8 @@ int main(int argc, char **argv) {
         {"list buckets", test_list_buckets_two},
         {"stats call"},
         {"release call"},
-        {"unknown call delegation"},
+        {"unknown call delegation", test_unknown_call},
+        {"unknown call delegation (no bucket)", test_unknown_call_no_bucket},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };

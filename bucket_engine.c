@@ -671,6 +671,14 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     case EXPAND_BUCKET:
         rv = handle_expand_bucket(handle, cookie, request, response);
         break;
+    default: {
+        proxied_engine_t *e = get_engine(handle, cookie);
+        if (e) {
+            rv = e->v1->unknown_command(handle, cookie, request, response);
+        } else {
+            rv = ENGINE_ENOTSUP;
+        }
+    }
     }
     return rv;
 }
