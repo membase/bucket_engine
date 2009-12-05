@@ -6,6 +6,7 @@
 #include <memcached/engine.h>
 
 #include "genhash.h"
+#include "bucket_engine.h"
 
 #define MAGIC 0x426D4639C1BFEC3ll
 
@@ -321,7 +322,12 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response)
 {
-    return ENGINE_ENOTSUP;
+    if (request->request.opcode != EXPAND_BUCKET) {
+        return ENGINE_ENOTSUP;
+    }
+
+    response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
+    return ENGINE_SUCCESS;
 }
 
 static uint64_t item_get_cas(const item* item)

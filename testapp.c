@@ -9,9 +9,14 @@
 
 #include "memcached/engine.h"
 
-#define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin"
+#define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin" \
+    ";auto_create=false"
+#define DEFAULT_CONFIG_AC "engine=.libs/mock_engine.so;default=true;admin=admin" \
+    ";auto_create=true"
+
 
 uint8_t last_status = 0;
+char *last_key = NULL;
 char *last_body = NULL;
 
 enum test_result {
@@ -73,6 +78,15 @@ bool add_response(const void *key, uint16_t keylen,
         last_body = malloc(bodylen);
         assert(last_body);
         memcpy(last_body, body, bodylen);
+    }
+    if (last_key) {
+        free(last_key);
+        last_key = NULL;
+    }
+    if (keylen > 0) {
+        last_key = malloc(keylen);
+        assert(last_key);
+        memcpy(last_key, key, keylen);
     }
     return true;
 }
@@ -591,6 +605,39 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
+                                           ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    return SUCCESS;
+}
+
+static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
+                                                   ENGINE_HANDLE_V1 *h1) {
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
+    rv = h1->unknown_command(h, "admin", pkt, add_response);
+    assert(rv == ENGINE_KEY_ENOENT);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    const char *exp = "Engine not found";
+    assert(memcmp(last_key, exp, strlen(exp)) == 0);
+
+    return SUCCESS;
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -651,25 +698,25 @@ int main(int argc, char **argv) {
         {"user storage with no default",
          test_two_engines,
          "engine=.libs/mock_engine.so;default=false"},
-        {"distinct storage", test_two_engines},
-        {"distinct storage (no auto-create)", test_two_engines_no_autocreate,
-         "engine=.libs/mock_engine.so;auto_create=false"},
-        {"delete from one of two nodes", test_two_engines_del},
-        {"flush from one of two nodes", test_two_engines_flush},
-        {"isolated arithmetic", test_arith},
-        {"create bucket", test_create_bucket,
-         "engine=.libs/mock_engine.so;auto_create=false"},
-        {"create bucket with params", test_create_bucket_with_params,
-         "engine=.libs/mock_engine.so;auto_create=false"},
+        {"distinct storage", test_two_engines, DEFAULT_CONFIG_AC},
+        {"distinct storage (no auto-create)", test_two_engines_no_autocreate},
+        {"delete from one of two nodes", test_two_engines_del,
+         DEFAULT_CONFIG_AC},
+        {"flush from one of two nodes", test_two_engines_flush,
+         DEFAULT_CONFIG_AC},
+        {"isolated arithmetic", test_arith, DEFAULT_CONFIG_AC},
+        {"create bucket", test_create_bucket},
+        {"create bucket with params", test_create_bucket_with_params},
         {"bucket name verification", test_bucket_name_validation},
-        {"delete bucket", test_delete_bucket,
-         "engine=.libs/mock_engine.so;auto_create=false"},
-        {"expand bucket"},
+        {"delete bucket", test_delete_bucket},
+        {"expand bucket", test_expand_bucket},
+        {"expand missing bucket", test_expand_missing_bucket},
         {"list buckets with none", test_list_buckets_none},
         {"list buckets with one", test_list_buckets_one},
         {"list buckets", test_list_buckets_two},
         {"stats call"},
         {"release call"},
+        {"unknown call delegation"},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };
