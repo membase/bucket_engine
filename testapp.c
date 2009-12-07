@@ -222,7 +222,55 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
     h1->reset_stats(h, cookie);
 
     return SUCCESS;
+}
 
+static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
+                                                         ENGINE_HANDLE_V1 *h1) {
+    item *item = NULL, *fetched_item;
+    const void *cookie = NULL;
+    char *key = "somekeyx";
+    char *value = "some value";
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key)-1,
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+
+    memcpy(h1->item_get_data(item), value, strlen(value));
+
+    rv = h1->store(h, cookie, item, 0, OPERATION_SET);
+    assert(rv == ENGINE_SUCCESS);
+
+    rv = h1->get(h, cookie, &fetched_item, "somekey", strlen("somekey"));
+    assert(rv == ENGINE_SUCCESS);
+
+    assert_item_eq(h, h1, item, fetched_item);
+
+    rv = h1->remove(h, cookie, fetched_item);
+    assert(rv == ENGINE_SUCCESS);
+
+    return SUCCESS;
+}
+
+static enum test_result test_default_unlinked_remove(ENGINE_HANDLE *h,
+                                                     ENGINE_HANDLE_V1 *h1) {
+    item *item = NULL;
+    const void *cookie = NULL;
+    char *key = "somekeyx";
+    const char *value = "the value";
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->allocate(h, cookie, &item,
+                      key, strlen(key)-1,
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+    rv = h1->remove(h, cookie, item);
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    return SUCCESS;
 }
 
 static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
@@ -721,6 +769,8 @@ int main(int argc, char **argv) {
     struct test tests[] = {
         {"get info", test_get_info},
         {"default storage", test_default_storage},
+        {"default storage key overrun", test_default_storage_key_overrun},
+        {"default unlinked remove", test_default_unlinked_remove},
         {"no default storage",
          test_no_default_storage,
          "engine=.libs/mock_engine.so;default=false"},

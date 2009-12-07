@@ -226,8 +226,8 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           item* item) {
-    genhash_delete_all(get_ht(handle), item_get_key(item), item->nkey);
-    return ENGINE_SUCCESS;
+    int r = genhash_delete_all(get_ht(handle), item_get_key(item), item->nkey);
+    return r > 0 ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 }
 
 static void mock_item_release(ENGINE_HANDLE* handle,
