@@ -801,7 +801,8 @@ int main(int argc, char **argv) {
         {"stats call"},
         {"release call"},
         {"unknown call delegation", test_unknown_call},
-        {"unknown call delegation (no bucket)", test_unknown_call_no_bucket},
+        {"unknown call delegation (no bucket)", test_unknown_call_no_bucket,
+         DEFAULT_CONFIG_NO_DEF},
         {"admin verification", test_admin_user},
         {NULL, NULL}
     };
