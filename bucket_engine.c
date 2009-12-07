@@ -166,7 +166,8 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
             // XXX:  Need default config
             rv = create_bucket(e, user, "");
         }
-    } else {
+    }
+    if (!rv) {
         rv = e->default_engine.v0 ? &e->default_engine : NULL;
     }
     return rv;

@@ -11,6 +11,8 @@
 
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin" \
     ";auto_create=false"
+#define DEFAULT_CONFIG_NO_DEF "engine=.libs/mock_engine.so;default=false;admin=admin" \
+    ";auto_create=false"
 #define DEFAULT_CONFIG_AC "engine=.libs/mock_engine.so;default=true;admin=admin" \
     ";auto_create=true"
 
@@ -778,16 +780,19 @@ int main(int argc, char **argv) {
          test_two_engines,
          "engine=.libs/mock_engine.so;default=false"},
         {"distinct storage", test_two_engines, DEFAULT_CONFIG_AC},
-        {"distinct storage (no auto-create)", test_two_engines_no_autocreate},
+        {"distinct storage (no auto-create)", test_two_engines_no_autocreate,
+         DEFAULT_CONFIG_NO_DEF},
         {"delete from one of two nodes", test_two_engines_del,
          DEFAULT_CONFIG_AC},
         {"flush from one of two nodes", test_two_engines_flush,
          DEFAULT_CONFIG_AC},
         {"isolated arithmetic", test_arith, DEFAULT_CONFIG_AC},
-        {"create bucket", test_create_bucket},
-        {"create bucket with params", test_create_bucket_with_params},
+        {"create bucket", test_create_bucket, DEFAULT_CONFIG_NO_DEF},
+        {"create bucket with params", test_create_bucket_with_params,
+         DEFAULT_CONFIG_NO_DEF},
         {"bucket name verification", test_bucket_name_validation},
-        {"delete bucket", test_delete_bucket},
+        {"delete bucket", test_delete_bucket,
+         DEFAULT_CONFIG_NO_DEF},
         {"expand bucket", test_expand_bucket},
         {"expand missing bucket", test_expand_missing_bucket},
         {"list buckets with none", test_list_buckets_none},
