@@ -561,7 +561,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     pkt = create_packet(DELETE_BUCKET, other_cookie, "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_SUCCESS);
     assert(last_status == ENGINE_KEY_ENOENT);
 
     rv = h1->allocate(h, other_cookie, &item,
@@ -579,7 +579,7 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "bucket one", "");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
-    assert(rv == ENGINE_NOT_STORED);
+    assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
 
     return SUCCESS;
@@ -681,7 +681,7 @@ static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
     rv = h1->unknown_command(h, "admin", pkt, add_response);
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
     const char *exp = "Engine not found";
     assert(memcmp(last_key, exp, strlen(exp)) == 0);

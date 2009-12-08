@@ -509,7 +509,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
                  0, cookie);
     }
 
-    return worked ? ENGINE_SUCCESS : ENGINE_NOT_STORED;
+    return ENGINE_SUCCESS;
 }
 
 static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
@@ -522,12 +522,11 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    ENGINE_ERROR_CODE rv = genhash_delete_all(e->engines, keyz, strlen(keyz)) > 0
-        ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
+    int upd = genhash_delete_all(e->engines, keyz, strlen(keyz));
 
     assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
 
-    if (rv == ENGINE_SUCCESS) {
+    if (upd > 0) {
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Not found.";
@@ -537,7 +536,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
                  0, cookie);
     }
 
-    return rv;
+    return ENGINE_SUCCESS;
 }
 
 struct bucket_list {
@@ -626,7 +625,7 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
 
     proxied_engine_t *proxied = genhash_find(e->engines, keyz, strlen(keyz));
 
-    ENGINE_ERROR_CODE rv = ENGINE_FAILED;
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
         rv = proxied->v1->unknown_command(handle, cookie, request, response);
     } else {
@@ -635,7 +634,6 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
                  "", 0, "", 0,
                  0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
                  0, cookie);
-        rv = ENGINE_KEY_ENOENT;
     }
 
     return rv;
