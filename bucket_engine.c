@@ -474,10 +474,10 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
 }
 
 #define EXTRACT_KEY(req, out)                                       \
-    char keyz[req->message.header.request.keylen + 1];              \
+    char keyz[ntohs(req->message.header.request.keylen) + 1];       \
     memcpy(keyz, ((void*)request) + sizeof(req->message.header),    \
-           req->message.header.request.keylen);                     \
-    keyz[req->message.header.request.keylen] = 0x00;
+           ntohs(req->message.header.request.keylen));              \
+    keyz[ntohs(req->message.header.request.keylen)] = 0x00;
 
 static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
                                        const void* cookie,
@@ -489,13 +489,13 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    size_t bodylen = breq->message.header.request.bodylen
-        - breq->message.header.request.keylen;
+    size_t bodylen = ntohl(breq->message.header.request.bodylen)
+        - ntohs(breq->message.header.request.keylen);
     assert(bodylen < (1 << 16)); // 64k ought to be enough for anybody
     char configz[bodylen + 1];
     memcpy(configz, ((void*)request) + sizeof(breq->message.header)
-           + breq->message.header.request.keylen, bodylen);
-    configz[breq->message.header.request.keylen] = 0x00;
+           + ntohs(breq->message.header.request.keylen), bodylen);
+    configz[ntohs(breq->message.header.request.keylen)] = 0x00;
 
     bool worked = create_bucket(e, keyz, configz) != NULL;
 

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <dlfcn.h>
+#include <arpa/inet.h>
 #include <assert.h>
 
 #include "bucket_engine.h"
@@ -451,8 +452,8 @@ static void* create_packet(uint8_t opcode, const char *key, const char *val) {
     protocol_binary_request_header *req =
         (protocol_binary_request_header*)pkt_raw;
     req->request.opcode = opcode;
-    req->request.keylen = strlen(key);
-    req->request.bodylen = req->request.keylen + strlen(val);
+    req->request.bodylen = htonl(strlen(key) + strlen(val));
+    req->request.keylen = htons(strlen(key));
     memcpy(pkt_raw + sizeof(protocol_binary_request_header),
            key, strlen(key));
     memcpy(pkt_raw + sizeof(protocol_binary_request_header) + strlen(key),
