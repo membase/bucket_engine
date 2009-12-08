@@ -4,6 +4,7 @@
 *.gcno
 *.gcov
 *.tcov
+*.pyc
 *~
 .deps
 /INSTALL
