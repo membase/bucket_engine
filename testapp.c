@@ -18,7 +18,7 @@
     ";auto_create=true"
 
 
-uint8_t last_status = 0;
+protocol_binary_response_status last_status = 0;
 char *last_key = NULL;
 char *last_body = NULL;
 
@@ -487,6 +487,24 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_double_create_bucket(ENGINE_HANDLE *h,
+                                                  ENGINE_HANDLE_V1 *h1) {
+    const char *adm_cookie = "admin", *other_cookie = "someuser";
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, other_cookie, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    pkt = create_packet(CREATE_BUCKET, other_cookie, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == ENGINE_KEY_EEXISTS);
+
+    return SUCCESS;
+}
+
 static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
                                                        ENGINE_HANDLE_V1 *h1) {
     const char *adm_cookie = "admin", *other_cookie = "someuser";
@@ -789,6 +807,8 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_AC},
         {"isolated arithmetic", test_arith, DEFAULT_CONFIG_AC},
         {"create bucket", test_create_bucket, DEFAULT_CONFIG_NO_DEF},
+        {"double create bucket", test_double_create_bucket,
+         DEFAULT_CONFIG_NO_DEF},
         {"create bucket with params", test_create_bucket_with_params,
          DEFAULT_CONFIG_NO_DEF},
         {"bucket name verification", test_bucket_name_validation},

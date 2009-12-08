@@ -130,13 +130,15 @@ static bool has_valid_bucket_name(const char *n) {
     return rv;
 }
 
-static proxied_engine_t *create_bucket(struct bucket_engine *e,
-                                       const char *username,
-                                       const char *config) {
-    if (!has_valid_bucket_name(username)) {
-        return NULL;
+static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
+                                       const char *bucket_name,
+                                       const char *config,
+                                       proxied_engine_t **e_out) {
+    if (!has_valid_bucket_name(bucket_name)) {
+        return ENGINE_EINVAL;
     }
-    proxied_engine_t *pe = calloc(sizeof(proxied_engine_t), 1);
+    *e_out = calloc(sizeof(proxied_engine_t), 1);
+    proxied_engine_t *pe = *e_out;
     assert(pe);
 
     ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &pe->v0);
@@ -147,12 +149,17 @@ static proxied_engine_t *create_bucket(struct bucket_engine *e,
         pe->v1->destroy(pe->v0);
         fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                 rv);
-        return NULL;
+        return rv;
     }
 
-    genhash_update(e->engines, username, strlen(username), pe, 0);
+    if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
+        genhash_update(e->engines, bucket_name, strlen(bucket_name), pe, 0);
+        rv = ENGINE_SUCCESS;
+    } else {
+        rv = ENGINE_KEY_EEXISTS;
+    }
 
-    return pe;
+    return rv;
 }
 
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
@@ -164,7 +171,7 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
         rv = genhash_find(e->engines, user, strlen(user));
         if (!rv && e->auto_create) {
             // XXX:  Need default config
-            rv = create_bucket(e, user, "");
+            create_bucket(e, user, "", &rv);
         }
     }
     if (!rv) {
@@ -497,17 +504,26 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
            + ntohs(breq->message.header.request.keylen), bodylen);
     configz[ntohs(breq->message.header.request.keylen)] = 0x00;
 
-    bool worked = create_bucket(e, keyz, configz) != NULL;
+    proxied_engine_t *pe = NULL;
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, configz, &pe);
 
-    if (worked) {
-        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
-    } else {
-        const char *msg = "Error creating bucket";
-        response(msg, strlen(msg),
-                 "", 0, "", 0,
-                 0, PROTOCOL_BINARY_RESPONSE_NOT_STORED,
-                 0, cookie);
+    const char *msg = "";
+    protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+
+    switch(ret) {
+    case ENGINE_SUCCESS:
+        // Defaults as above.
+        break;
+    case ENGINE_KEY_EEXISTS:
+        msg = "Bucket exists";
+        rc = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+        break;
+    default:
+        msg = "Error creating bucket";
+        rc = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
     }
+
+    response(msg, strlen(msg), "", 0, "", 0, 0, rc, 0, cookie);
 
     return ENGINE_SUCCESS;
 }
