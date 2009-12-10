@@ -19,6 +19,7 @@ typedef union proxied_engine {
 typedef struct proxied_engine_handle {
     proxied_engine_t pe;
     int refcount;
+    bool valid;
 } proxied_engine_handle_t;
 
 struct bucket_engine {
@@ -145,6 +146,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
     peh->refcount = 1;
+    peh->valid = true;
     assert(peh);
 
     ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
@@ -172,7 +174,7 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
     proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
-    if (peh == NULL) {
+    if (peh == NULL || !peh->valid) {
         const char *user = e->server->get_auth_data(cookie);
         if (user) {
             peh = genhash_find(e->engines, user, strlen(user));
@@ -181,6 +183,10 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                 create_bucket(e, user, "", &peh);
             }
         }
+        if (peh) {
+            peh->refcount++;
+        }
+        e->server->store_engine_specific(cookie, peh);
     }
 
     proxied_engine_t *rv = NULL;
@@ -219,6 +225,7 @@ static void* noop_dup(const void* ob, size_t vlen) {
 
 static void engine_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
+    peh->valid = false;
     if (--peh->refcount == 0) {
         peh->pe.v1->destroy(peh->pe.v0);
         free(ob);
