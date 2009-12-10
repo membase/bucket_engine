@@ -144,6 +144,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     }
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
+    peh->refcount = 1;
     assert(peh);
 
     ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
