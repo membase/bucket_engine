@@ -164,19 +164,23 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
-    proxied_engine_t *rv = NULL;
     struct bucket_engine *e = (struct bucket_engine*)h;
-    const char *user = e->server->get_auth_data(cookie);
-    if (user) {
-        rv = genhash_find(e->engines, user, strlen(user));
-        if (!rv && e->auto_create) {
-            // XXX:  Need default config
-            create_bucket(e, user, "", &rv);
+    proxied_engine_t *rv = e->server->get_engine_specific(cookie);
+    if (rv == NULL) {
+        const char *user = e->server->get_auth_data(cookie);
+        if (user) {
+            rv = genhash_find(e->engines, user, strlen(user));
+            if (!rv && e->auto_create) {
+                // XXX:  Need default config
+                create_bucket(e, user, "", &rv);
+            }
         }
     }
+
     if (!rv) {
         rv = e->default_engine.v0 ? &e->default_engine : NULL;
     }
+
     return rv;
 }
 
