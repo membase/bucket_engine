@@ -39,7 +39,27 @@ struct connstruct {
     uint64_t magic;
     const char *uname;
     void *engine_data;
+    struct connstruct *next;
 };
+
+struct engine_event_handler {
+    EVENT_CALLBACK cb;
+    const void *cb_data;
+    struct engine_event_handler *next;
+};
+
+static struct connstruct *connstructs;
+
+static struct engine_event_handler *engine_event_handlers[MAX_ENGINE_EVENT_TYPE + 1];
+
+static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
+                                     const void *data,
+                                     struct connstruct *c) {
+    for (struct engine_event_handler *h = engine_event_handlers[type];
+         h; h = h->next) {
+        h->cb(c, type, data, h->cb_data);
+    }
+}
 
 static const char* get_server_version() {
     return "bucket mock";
@@ -55,13 +75,25 @@ static struct connstruct *mk_conn(const char *user) {
     assert(rv);
     rv->magic = CONN_MAGIC;
     rv->uname = user;
+    rv->next = connstructs;
+    connstructs = rv;
+    perform_callbacks(ON_CONNECT, NULL, rv);
+    if (rv->uname) {
+        perform_callbacks(ON_AUTH, rv->uname, rv);
+    }
     return rv;
 }
 
 static void register_callback(ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb,
                               const void *cb_data) {
-    // Nothing yet.
+    struct engine_event_handler *h =
+        calloc(sizeof(struct engine_event_handler), 1);
+    assert(h);
+    h->cb = cb;
+    h->cb_data = cb_data;
+    h->next = engine_event_handlers[type];
+    engine_event_handlers[type] = h;
 }
 
 static void store_engine_specific(const void *cookie,
@@ -498,13 +530,13 @@ static void* create_packet(uint8_t opcode, const char *key, const char *val) {
 
 static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                                            ENGINE_HANDLE_V1 *h1) {
-    const void *adm_cookie = mk_conn("admin"), *other_cookie = mk_conn("someuser");
+    const void *adm_cookie = mk_conn("admin");
     const char *key = "somekey";
     const char *value = "the value";
     item *item;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-    rv = h1->allocate(h, adm_cookie, &item,
+    rv = h1->allocate(h, mk_conn("someuser"), &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_ENOMEM);
@@ -514,7 +546,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    rv = h1->allocate(h, other_cookie, &item,
+    rv = h1->allocate(h, mk_conn("someuser"), &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
@@ -591,7 +623,7 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
 
 static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                                            ENGINE_HANDLE_V1 *h1) {
-    const void *adm_cookie = mk_conn("admin"), *other_cookie = mk_conn("someuser");
+    const void *adm_cookie = mk_conn("admin");
     const char *key = "somekey";
     const char *value = "the value";
     item *item;
@@ -602,6 +634,8 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
+
+    const void *other_cookie = mk_conn("someuser");
 
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
@@ -809,11 +843,26 @@ static int report_test(enum test_result r) {
     return rc;
 }
 
+static void disconnect_all_connections(struct connstruct *c) {
+    if (c) {
+        perform_callbacks(ON_DISCONNECT, NULL, c);
+        disconnect_all_connections(c->next);
+        free(c);
+    }
+}
+
 static int run_test(struct test test) {
     last_status = 0xff;
     int rc = 0;
+    /* Zero out leftover state */
+    connstructs = NULL;
+    memset(engine_event_handlers, 0x00,
+    sizeof(engine_event_handlers));
+    /* Start the engines and go */
     ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
     rc = report_test(test.tfun((ENGINE_HANDLE*)h, h));
+    disconnect_all_connections(connstructs);
+    connstructs = NULL;
     h->destroy((ENGINE_HANDLE*)h);
     return rc;
 }

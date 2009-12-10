@@ -29,7 +29,7 @@ struct bucket_engine {
     bool auto_create;
     char *proxied_engine_path;
     char *admin_user;
-    proxied_engine_t default_engine;
+    proxied_engine_handle_t default_engine;
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
     GET_SERVER_API get_server_api;
@@ -128,6 +128,23 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     return ENGINE_SUCCESS;
 }
 
+static void release_handle(proxied_engine_handle_t *peh) {
+    if (peh) {
+        if (--peh->refcount == 0) {
+            // We should never free the default engine.
+            assert(peh != &bucket_engine.default_engine);
+            peh->pe.v1->destroy(peh->pe.v0);
+            free(peh);
+        }
+    }
+}
+
+static void retain_handle(proxied_engine_handle_t *peh) {
+    if (peh) {
+        peh->refcount++;
+    }
+}
+
 static bool has_valid_bucket_name(const char *n) {
     bool rv = strlen(n) > 0;
     for (; *n; n++) {
@@ -174,26 +191,17 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
     proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
-    if (peh == NULL || !peh->valid) {
-        const char *user = e->server->get_auth_data(cookie);
-        if (user) {
-            peh = genhash_find(e->engines, user, strlen(user));
-            if (!peh && e->auto_create) {
-                // XXX:  Need default config
-                create_bucket(e, user, "", &peh);
-            }
-        }
-        if (peh) {
-            peh->refcount++;
-        }
-        e->server->store_engine_specific(cookie, peh);
+    if (peh != NULL && !peh->valid) {
+        peh->refcount--;
+        e->server->store_engine_specific(cookie, NULL);
+        peh = NULL;
     }
 
     proxied_engine_t *rv = NULL;
     if (peh) {
         rv = &peh->pe;
     } else {
-        rv = e->default_engine.v0 ? &e->default_engine : NULL;
+        rv = e->default_engine.pe.v0 ? &e->default_engine.pe : NULL;
     }
 
     return rv;
@@ -223,13 +231,10 @@ static void* noop_dup(const void* ob, size_t vlen) {
     return (void*)ob;
 }
 
-static void engine_free(void* ob) {
+static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     peh->valid = false;
-    if (--peh->refcount == 0) {
-        peh->pe.v1->destroy(peh->pe.v0);
-        free(ob);
-    }
+    release_handle(peh);
 }
 
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
@@ -292,6 +297,48 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
     return engine;
 }
 
+static void handle_disconnect(const void *cookie,
+                              ENGINE_EVENT_TYPE type,
+                              const void *event_data,
+                              const void *cb_data) {
+    struct bucket_engine *e = (struct bucket_engine*)cb_data;
+
+    // Free up the engine we were using.
+    release_handle(e->server->get_engine_specific(cookie));
+}
+
+static void handle_connect(const void *cookie,
+                           ENGINE_EVENT_TYPE type,
+                           const void *event_data,
+                           const void *cb_data) {
+    struct bucket_engine *e = (struct bucket_engine*)cb_data;
+
+    // Assign the default bucket (if there is one).
+    proxied_engine_handle_t *peh = e->default_engine.pe.v0 ?
+        &e->default_engine : NULL;
+    retain_handle(peh);
+    e->server->store_engine_specific(cookie, peh);
+}
+
+static void handle_auth(const void *cookie,
+                        ENGINE_EVENT_TYPE type,
+                        const void *event_data,
+                        const void *cb_data) {
+    struct bucket_engine *e = (struct bucket_engine*)cb_data;
+
+    // Free up the default engine (or user engine if re-auth).
+    release_handle(e->server->get_engine_specific(cookie));
+
+    const char *user = (const char *)event_data;
+    proxied_engine_handle_t *peh = genhash_find(e->engines, user, strlen(user));
+    if (!peh && e->auto_create) {
+        // XXX:  Need default config
+        create_bucket(e, user, "", &peh);
+    }
+    retain_handle(peh);
+    e->server->store_engine_specific(cookie, peh);
+}
+
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str) {
     struct bucket_engine* se = get_handle(handle);
@@ -309,7 +356,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         .dupKey = hash_strdup,
         .dupValue = noop_dup,
         .freeKey = free,
-        .freeValue = engine_free
+        .freeValue = engine_hash_free
     };
 
     se->engines = genhash_init(1, my_hash_ops);
@@ -337,8 +384,13 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
     if (se->has_default) {
-        se->default_engine.v0 = load_engine(se->proxied_engine_path, "", NULL);
+        se->default_engine.refcount = 1;
+        se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
     }
+
+    se->server->register_callback(ON_CONNECT, handle_connect, se);
+    se->server->register_callback(ON_AUTH, handle_auth, se);
+    se->server->register_callback(ON_DISCONNECT, handle_disconnect, se);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
