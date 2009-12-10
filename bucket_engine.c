@@ -16,6 +16,11 @@ typedef union proxied_engine {
     ENGINE_HANDLE_V1 *v1;
 } proxied_engine_t;
 
+typedef struct proxied_engine_handle {
+    proxied_engine_t pe;
+    int refcount;
+} proxied_engine_handle_t;
+
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     bool initialized;
@@ -133,27 +138,27 @@ static bool has_valid_bucket_name(const char *n) {
 static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
                                        const char *bucket_name,
                                        const char *config,
-                                       proxied_engine_t **e_out) {
+                                       proxied_engine_handle_t **e_out) {
     if (!has_valid_bucket_name(bucket_name)) {
         return ENGINE_EINVAL;
     }
-    *e_out = calloc(sizeof(proxied_engine_t), 1);
-    proxied_engine_t *pe = *e_out;
-    assert(pe);
+    *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
+    proxied_engine_handle_t *peh = *e_out;
+    assert(peh);
 
-    ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &pe->v0);
+    ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
     // This was already verified, but we'll check it anyway
-    assert(pe->v0->interface == 1);
-    if (pe->v1->initialize(pe->v0, config) != ENGINE_SUCCESS) {
+    assert(peh->pe.v0->interface == 1);
+    if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
 
-        pe->v1->destroy(pe->v0);
+        peh->pe.v1->destroy(peh->pe.v0);
         fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                 rv);
         return rv;
     }
 
     if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
-        genhash_update(e->engines, bucket_name, strlen(bucket_name), pe, 0);
+        genhash_update(e->engines, bucket_name, strlen(bucket_name), peh, 0);
         rv = ENGINE_SUCCESS;
     } else {
         rv = ENGINE_KEY_EEXISTS;
@@ -165,19 +170,22 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
-    proxied_engine_t *rv = e->server->get_engine_specific(cookie);
-    if (rv == NULL) {
+    proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
+    if (peh == NULL) {
         const char *user = e->server->get_auth_data(cookie);
         if (user) {
-            rv = genhash_find(e->engines, user, strlen(user));
-            if (!rv && e->auto_create) {
+            peh = genhash_find(e->engines, user, strlen(user));
+            if (!peh && e->auto_create) {
                 // XXX:  Need default config
-                create_bucket(e, user, "", &rv);
+                create_bucket(e, user, "", &peh);
             }
         }
     }
 
-    if (!rv) {
+    proxied_engine_t *rv = NULL;
+    if (peh) {
+        rv = &peh->pe;
+    } else {
         rv = e->default_engine.v0 ? &e->default_engine : NULL;
     }
 
@@ -209,9 +217,11 @@ static void* noop_dup(const void* ob, size_t vlen) {
 }
 
 static void engine_free(void* ob) {
-    proxied_engine_t *e = (proxied_engine_t *)ob;
-    e->v1->destroy(e->v0);
-    free(ob);
+    proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
+    if (--peh->refcount == 0) {
+        peh->pe.v1->destroy(peh->pe.v0);
+        free(ob);
+    }
 }
 
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
@@ -508,8 +518,8 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
            + ntohs(breq->message.header.request.keylen), bodylen);
     configz[ntohs(breq->message.header.request.keylen)] = 0x00;
 
-    proxied_engine_t *pe = NULL;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, configz, &pe);
+    proxied_engine_handle_t *peh = NULL;
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, configz, &peh);
 
     const char *msg = "";
     protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
