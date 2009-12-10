@@ -42,7 +42,9 @@ static const char* get_auth_data(const void *cookie) {
     return (const char*)cookie;
 }
 
-static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
+static void register_callback(ENGINE_EVENT_TYPE type,
+                              EVENT_CALLBACK cb,
+                              const void *cb_data) {
     // Nothing yet.
 }
 
