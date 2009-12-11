@@ -4,6 +4,8 @@
 #include <dlfcn.h>
 #include <string.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+
 #include <assert.h>
 
 #include <memcached/engine.h>
