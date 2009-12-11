@@ -345,16 +345,19 @@ static void handle_auth(const void *cookie,
     release_handle(e->server->get_engine_specific(cookie));
 
     const char *user = (const char *)event_data;
+    proxied_engine_handle_t *peh = NULL;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        proxied_engine_handle_t *peh = genhash_find(e->engines, user, strlen(user));
-        if (!peh && e->auto_create) {
-            // XXX:  Need default config
-            create_bucket(e, user, "", &peh);
-        }
-        retain_handle(peh);
-        e->server->store_engine_specific(cookie, peh);
+        peh = genhash_find(e->engines, user, strlen(user));
+        pthread_mutex_unlock(&e->engines_mutex);
+    } else {
+        return;
     }
-    pthread_mutex_unlock(&e->engines_mutex);
+    if (!peh && e->auto_create) {
+        // XXX:  Need default config
+        create_bucket(e, user, "", &peh);
+    }
+    retain_handle(peh);
+    e->server->store_engine_specific(cookie, peh);
 }
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
@@ -363,18 +366,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
 
     assert(!se->initialized);
 
-    pthread_mutexattr_t mutex_attr;
-    if (pthread_mutexattr_init(&mutex_attr) != 0) {
-        fprintf(stderr, "Couldn't initialize mutex attribute.\n");
-        return ENGINE_FAILED;
-    }
-
-    if (pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE) != 0) {
-        fprintf(stderr, "Couldn't set mutex attribute type of recursive.\n");
-        return ENGINE_FAILED;
-    }
-
-    if (pthread_mutex_init(&se->engines_mutex, &mutex_attr) != 0) {
+    if (pthread_mutex_init(&se->engines_mutex, NULL) != 0) {
         fprintf(stderr, "Error initializing mutex for bucket engine.\n");
         return ENGINE_FAILED;
     }
