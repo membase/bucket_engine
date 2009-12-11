@@ -194,7 +194,7 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
     struct bucket_engine *e = (struct bucket_engine*)h;
     proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
     if (peh != NULL && !peh->valid) {
-        peh->refcount--;
+        release_handle(peh);
         e->server->store_engine_specific(cookie, NULL);
         peh = NULL;
     }
