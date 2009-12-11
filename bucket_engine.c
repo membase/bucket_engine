@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <pthread.h>
 #include <assert.h>
 
 #include "config_parser.h"
@@ -30,6 +31,7 @@ struct bucket_engine {
     char *proxied_engine_path;
     char *admin_user;
     proxied_engine_handle_t default_engine;
+    pthread_mutex_t engines_mutex;
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
     GET_SERVER_API get_server_api;
@@ -160,6 +162,10 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     if (!has_valid_bucket_name(bucket_name)) {
         return ENGINE_EINVAL;
     }
+    if (pthread_mutex_lock(&e->engines_mutex) != 0) {
+        return ENGINE_FAILED;
+    }
+
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
     peh->refcount = 1;
@@ -174,6 +180,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         peh->pe.v1->destroy(peh->pe.v0);
         fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                 rv);
+        pthread_mutex_unlock(&e->engines_mutex);
         return rv;
     }
 
@@ -185,6 +192,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     }
 
     release_handle(peh);
+
+    pthread_mutex_unlock(&e->engines_mutex);
 
     return rv;
 }
@@ -334,13 +343,16 @@ static void handle_auth(const void *cookie,
     release_handle(e->server->get_engine_specific(cookie));
 
     const char *user = (const char *)event_data;
-    proxied_engine_handle_t *peh = genhash_find(e->engines, user, strlen(user));
-    if (!peh && e->auto_create) {
-        // XXX:  Need default config
-        create_bucket(e, user, "", &peh);
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        proxied_engine_handle_t *peh = genhash_find(e->engines, user, strlen(user));
+        if (!peh && e->auto_create) {
+            // XXX:  Need default config
+            create_bucket(e, user, "", &peh);
+        }
+        retain_handle(peh);
+        e->server->store_engine_specific(cookie, peh);
     }
-    retain_handle(peh);
-    e->server->store_engine_specific(cookie, peh);
+    pthread_mutex_unlock(&e->engines_mutex);
 }
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
@@ -348,6 +360,22 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     struct bucket_engine* se = get_handle(handle);
 
     assert(!se->initialized);
+
+    pthread_mutexattr_t mutex_attr;
+    if (pthread_mutexattr_init(&mutex_attr) != 0) {
+        fprintf(stderr, "Couldn't initialize mutex attribute.\n");
+        return ENGINE_FAILED;
+    }
+
+    if (pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE) != 0) {
+        fprintf(stderr, "Couldn't set mutex attribute type of recursive.\n");
+        return ENGINE_FAILED;
+    }
+
+    if (pthread_mutex_init(&se->engines_mutex, &mutex_attr) != 0) {
+        fprintf(stderr, "Error initializing mutex for bucket engine.\n");
+        return ENGINE_FAILED;
+    }
 
     ENGINE_ERROR_CODE ret = initalize_configuration(se, config_str);
     if (ret != ENGINE_SUCCESS) {
@@ -416,6 +444,7 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         se->proxied_engine_path = NULL;
         free(se->admin_user);
         se->admin_user = NULL;
+        pthread_mutex_destroy(&se->engines_mutex);
         se->initialized = false;
     }
 }
@@ -621,9 +650,14 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    int upd = genhash_delete_all(e->engines, keyz, strlen(keyz));
-
-    assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
+    int upd = 0;
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        upd = genhash_delete_all(e->engines, keyz, strlen(keyz));
+        assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
+        pthread_mutex_unlock(&e->engines_mutex);
+    } else {
+        return ENGINE_FAILED;
+    }
 
     if (upd > 0) {
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
@@ -663,7 +697,12 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
 
     // Accumulate the current bucket list.
     struct bucket_list *blist = NULL;
-    genhash_iter(e->engines, add_engine, &blist);
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        genhash_iter(e->engines, add_engine, &blist);
+        pthread_mutex_unlock(&e->engines_mutex);
+    } else {
+        return ENGINE_FAILED;
+    }
 
     int len = 0, n = 0;
     struct bucket_list *p = blist;
@@ -722,7 +761,13 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    proxied_engine_t *proxied = genhash_find(e->engines, keyz, strlen(keyz));
+    proxied_engine_t *proxied = NULL;
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        proxied = genhash_find(e->engines, keyz, strlen(keyz));
+        pthread_mutex_unlock(&e->engines_mutex);
+    } else {
+        return ENGINE_FAILED;
+    }
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
