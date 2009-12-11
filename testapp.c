@@ -39,6 +39,7 @@ struct connstruct {
     uint64_t magic;
     const char *uname;
     void *engine_data;
+    bool connected;
     struct connstruct *next;
 };
 
@@ -74,7 +75,8 @@ static struct connstruct *mk_conn(const char *user) {
     struct connstruct *rv = calloc(sizeof(struct connstruct), 1);
     assert(rv);
     rv->magic = CONN_MAGIC;
-    rv->uname = user;
+    rv->uname = user ? strdup(user) : NULL;
+    rv->connected = true;
     rv->next = connstructs;
     connstructs = rv;
     perform_callbacks(ON_CONNECT, NULL, rv);
@@ -82,6 +84,11 @@ static struct connstruct *mk_conn(const char *user) {
         perform_callbacks(ON_AUTH, rv->uname, rv);
     }
     return rv;
+}
+
+static void disconnect(struct connstruct *c) {
+    c->connected = false;
+    perform_callbacks(ON_DISCONNECT, NULL, c);
 }
 
 static void register_callback(ENGINE_EVENT_TYPE type,
@@ -543,6 +550,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -561,11 +569,13 @@ static enum test_result test_double_create_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == ENGINE_KEY_EEXISTS);
 
@@ -587,6 +597,7 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "no_alloc");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -605,16 +616,19 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
     // Test with no user.
     void *pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, mk_conn(NULL), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with non-admin
     pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, mk_conn("notadmin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with admin
     pkt = create_packet(CREATE_BUCKET, "newbucket", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -632,6 +646,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -644,10 +659,12 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     pkt = create_packet(DELETE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
 
     pkt = create_packet(DELETE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == ENGINE_KEY_ENOENT);
 
@@ -666,6 +683,7 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "bucket one", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
 
@@ -680,6 +698,7 @@ static enum test_result test_list_buckets_none(ENGINE_HANDLE *h,
     // Go find all the buckets.
     void *pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -698,17 +717,19 @@ static enum test_result test_list_buckets_one(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now go find all the buckets.
     pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now verify the body looks alright.
-    assert(strcmp(last_body, "bucket1") == 0);
+    assert(strncmp(last_body, "bucket1", 7) == 0);
 
     return SUCCESS;
 }
@@ -722,23 +743,26 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
     rv = h1->unknown_command(h, cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     pkt = create_packet(CREATE_BUCKET, "bucket2", "");
     rv = h1->unknown_command(h, cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now go find all the buckets.
     pkt = create_packet(LIST_BUCKETS, "", "");
     rv = h1->unknown_command(h, cookie, pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     // Now verify the body looks alright.
-    assert(strcmp(last_body, "bucket1 bucket2") == 0
-           || strcmp(last_body, "bucket2 bucket1") == 0);
+    assert(strncmp(last_body, "bucket1 bucket2", 15) == 0
+           || strncmp(last_body, "bucket2 bucket1", 15) == 0);
 
     return SUCCESS;
 }
@@ -750,11 +774,13 @@ static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
@@ -768,6 +794,7 @@ static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
     const char *exp = "Engine not found";
@@ -783,11 +810,13 @@ static enum test_result test_unknown_call(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
     pkt = create_packet(0xfe, "somekey", "someval");
     rv = h1->unknown_command(h, mk_conn("someuser"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     return SUCCESS;
@@ -800,6 +829,7 @@ static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
 
     void *pkt = create_packet(0xfe, "somekey", "someval");
     rv = h1->unknown_command(h, mk_conn("someuser"), pkt, add_response);
+    free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     return SUCCESS;
@@ -845,23 +875,36 @@ static int report_test(enum test_result r) {
 
 static void disconnect_all_connections(struct connstruct *c) {
     if (c) {
-        perform_callbacks(ON_DISCONNECT, NULL, c);
+        disconnect(c);
         disconnect_all_connections(c->next);
+        free((void*)c->uname);
         free(c);
+    }
+}
+
+static void destroy_event_handlers_rec(struct engine_event_handler *h) {
+    if (h) {
+        destroy_event_handlers_rec(h->next);
+        free(h);
+    }
+}
+
+static void destroy_event_handlers() {
+    int i = 0;
+    for (i = 0; i < MAX_ENGINE_EVENT_TYPE; i++) {
+        destroy_event_handlers_rec(engine_event_handlers[i]);
+        engine_event_handlers[i] = NULL;
     }
 }
 
 static int run_test(struct test test) {
     last_status = 0xff;
     int rc = 0;
-    /* Zero out leftover state */
-    connstructs = NULL;
-    memset(engine_event_handlers, 0x00,
-    sizeof(engine_event_handlers));
     /* Start the engines and go */
     ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
     rc = report_test(test.tfun((ENGINE_HANDLE*)h, h));
     disconnect_all_connections(connstructs);
+    destroy_event_handlers();
     connstructs = NULL;
     h->destroy((ENGINE_HANDLE*)h);
     return rc;

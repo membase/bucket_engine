@@ -186,6 +186,8 @@ static void mock_destroy(ENGINE_HANDLE* handle) {
 
     if (se->initialized) {
         se->initialized = false;
+        genhash_free(se->hashtbl);
+        free(se);
     }
 }
 
