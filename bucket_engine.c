@@ -6,11 +6,11 @@
 #include <pthread.h>
 #include <assert.h>
 
-#include "config_parser.h"
+#include <memcached/engine.h>
+#include <memcached/config_parser.h>
+
 #include "genhash.h"
 #include "bucket_engine.h"
-
-#include <memcached/engine.h>
 
 typedef union proxied_engine {
     ENGINE_HANDLE *v0;

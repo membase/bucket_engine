@@ -83,7 +83,7 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response);
 static char* item_get_data(const item* item);
-static char* item_get_key(const item* item);
+static const char* item_get_key(const item* item);
 static void item_set_cas(item* item, uint64_t val);
 static uint64_t item_get_cas(const item* item);
 static uint8_t item_get_clsid(const item* item);
@@ -218,7 +218,7 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
         i->nbytes = nbytes;
         i->flags = flags;
         i->nkey = nkey;
-        memcpy(item_get_key(i), key, nkey);
+        memcpy((char*)item_get_key(i), key, nkey);
         return ENGINE_SUCCESS;
     } else {
         return ENGINE_ENOMEM;
@@ -347,7 +347,7 @@ static void item_set_cas(item* item, uint64_t val)
     }
 }
 
-static char* item_get_key(const item* item)
+static const char* item_get_key(const item* item)
 {
     char *ret = (void*)(item + 1);
     if (item->iflag & ITEM_WITH_CAS) {
@@ -359,7 +359,7 @@ static char* item_get_key(const item* item)
 
 static char* item_get_data(const item* item)
 {
-    return item_get_key(item) + item->nkey + 1;
+    return ((char*)item_get_key(item)) + item->nkey + 1;
 }
 
 static uint8_t item_get_clsid(const item* item)
