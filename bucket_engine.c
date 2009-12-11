@@ -184,6 +184,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         rv = ENGINE_KEY_EEXISTS;
     }
 
+    release_handle(peh);
+
     return rv;
 }
 
@@ -227,7 +229,9 @@ static void* hash_strdup(const void *k, size_t nkey) {
     return rv;
 }
 
-static void* noop_dup(const void* ob, size_t vlen) {
+static void* refcount_dup(const void* ob, size_t vlen) {
+    proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
+    peh->refcount++;
     return (void*)ob;
 }
 
@@ -354,7 +358,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         .hashfunc = genhash_string_hash,
         .hasheq = my_hash_eq,
         .dupKey = hash_strdup,
-        .dupValue = noop_dup,
+        .dupValue = refcount_dup,
         .freeKey = free,
         .freeValue = engine_hash_free
     };
@@ -384,6 +388,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
     if (se->has_default) {
+        memset(&se->default_engine, 0, sizeof(se->default_engine));
         se->default_engine.refcount = 1;
         se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
     }
@@ -407,6 +412,10 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         }
         genhash_free(se->engines);
         se->engines = NULL;
+        free(se->proxied_engine_path);
+        se->proxied_engine_path = NULL;
+        free(se->admin_user);
+        se->admin_user = NULL;
         se->initialized = false;
     }
 }
