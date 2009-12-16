@@ -787,7 +787,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    proxied_engine_t *proxied = NULL;
+    proxied_engine_handle_t *proxied = NULL;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
         proxied = genhash_find(e->engines, keyz, strlen(keyz));
         pthread_mutex_unlock(&e->engines_mutex);
@@ -797,7 +797,11 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
-        assert(false);
+        // Free up the currently held engine.
+        release_handle(e->server->get_engine_specific(cookie));
+        retain_handle(proxied);
+        e->server->store_engine_specific(cookie, proxied);
+        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Engine not found";
         response(msg, strlen(msg),

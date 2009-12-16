@@ -853,6 +853,37 @@ static enum test_result test_select_no_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_select(ENGINE_HANDLE *h,
+                                    ENGINE_HANDLE_V1 *h1) {
+    item *item1, *fetched_item1 = NULL, *fetched_item2;
+    const void *cookie1 = mk_conn("user1"), *admin = mk_conn("admin");
+    char *key = "somekey";
+    char *value1 = "some value1";
+
+    store(h, h1, cookie1, key, value1, &item1);
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->get(h, cookie1, &fetched_item1, key, strlen(key));
+    assert(rv == ENGINE_SUCCESS);
+    rv = h1->get(h, admin, &fetched_item2, key, strlen(key));
+    assert(rv == ENGINE_KEY_ENOENT);
+
+    assert_item_eq(h, h1, item1, fetched_item1);
+
+    void *pkt = create_packet(SELECT_BUCKET, "user1", "");
+    rv = h1->unknown_command(h, admin, pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    rv = h1->get(h, admin, &fetched_item2, key, strlen(key));
+    assert(rv == ENGINE_SUCCESS);
+    assert_item_eq(h, h1, item1, fetched_item2);
+
+    return SUCCESS;
+}
+
 static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -978,7 +1009,7 @@ int main(int argc, char **argv) {
         {"list buckets with one", test_list_buckets_one},
         {"list buckets", test_list_buckets_two},
         {"fail to select a bucket when not admin", test_select_no_admin},
-        {"select a bucket as admin"},
+        {"select a bucket as admin", test_select, DEFAULT_CONFIG_AC},
         {"fail to select non-existent bucket as admin", test_select_no_bucket},
         {"stats call"},
         {"release call"},
