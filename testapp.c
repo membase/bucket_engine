@@ -822,6 +822,24 @@ static enum test_result test_unknown_call(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_select_no_admin(ENGINE_HANDLE *h,
+                                             ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    rv = h1->unknown_command(h, mk_conn("admin"), pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    pkt = create_packet(SELECT_BUCKET, "stuff", "");
+    rv = h1->unknown_command(h, mk_conn("notadmin"), pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_ENOTSUP);
+
+    return SUCCESS;
+}
+
 static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -946,6 +964,9 @@ int main(int argc, char **argv) {
         {"list buckets with none", test_list_buckets_none},
         {"list buckets with one", test_list_buckets_one},
         {"list buckets", test_list_buckets_two},
+        {"fail to select a bucket when not admin", test_select_no_admin},
+        {"select a bucket as admin"},
+        {"fail to select non-existent bucket as admin"},
         {"stats call"},
         {"release call"},
         {"unknown call delegation", test_unknown_call},
