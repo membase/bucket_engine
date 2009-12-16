@@ -777,11 +777,44 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
     return rv;
 }
 
+static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
+                                              const void* cookie,
+                                              protocol_binary_request_header *request,
+                                              ADD_RESPONSE response) {
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    protocol_binary_request_delete_bucket *breq =
+        (protocol_binary_request_delete_bucket*)request;
+
+    EXTRACT_KEY(breq, keyz);
+
+    proxied_engine_t *proxied = NULL;
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        proxied = genhash_find(e->engines, keyz, strlen(keyz));
+        pthread_mutex_unlock(&e->engines_mutex);
+    } else {
+        return ENGINE_FAILED;
+    }
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    if (proxied) {
+        assert(false);
+    } else {
+        const char *msg = "Engine not found";
+        response(msg, strlen(msg),
+                 "", 0, "", 0,
+                 0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                 0, cookie);
+    }
+
+    return rv;
+}
+
 static inline bool is_admin_command(uint8_t opcode) {
     return opcode == CREATE_BUCKET
         || opcode == DELETE_BUCKET
         || opcode == LIST_BUCKETS
-        || opcode == EXPAND_BUCKET;
+        || opcode == EXPAND_BUCKET
+        || opcode == SELECT_BUCKET;
 }
 
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
@@ -807,6 +840,9 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
         break;
     case EXPAND_BUCKET:
         rv = handle_expand_bucket(handle, cookie, request, response);
+        break;
+    case SELECT_BUCKET:
+        rv = handle_select_bucket(handle, cookie, request, response);
         break;
     default: {
         proxied_engine_t *e = get_engine(handle, cookie);
