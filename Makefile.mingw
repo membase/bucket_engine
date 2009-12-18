@@ -12,17 +12,20 @@ win32_objs += win32/win32.o
 win32_objs += win32/dlfcn.o
 # win32_objs += win32/ntservice.o
 
+win32_cflags := -std=gnu99 -O2
+win32_cflags += -Imemcached/include
+win32_cflags += -Iwin32 -Iwin32/include
+# win32_cflags += -fno-strict-aliasing
+# win32_cflags += -Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
+# win32_cflags += -Wmissing-declarations -Wredundant-decls
+# win32_cflags += -DHAVE_CONFIG_H
+
 testapp_objs := testapp.o
 testapp_objs += bucket_engine.o genhash.o config_parser.o mock_engine.o util.o
 testapp_objs += ${win32_objs}
 
-testapp_cflags := -std=gnu99 -O2
-testapp_cflags += -Imemcached/include
-testapp_cflags += -Iwin32 -Iwin32/include
-# testapp_cflags += -fno-strict-aliasing
-# testapp_cflags += -Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
-# testapp_cflags += -Wmissing-declarations -Wredundant-decls
-# testapp_cflags += -DHAVE_CONFIG_H
+bucket_engine_objs := bucket_engine.o genhash.o config_parser.o util.o
+mock_engine_objs := mock_engine.o genhash.o
 
 testapp_ldflags := -lwsock32 -lws2_32
 testapp_ldflags += -lpthread
@@ -30,7 +33,7 @@ testapp_ldflags += -lpthread
 # testapp_ldflags += -L../testapp_win32_deps
 
 %.o: %.c
-	${CC} ${testapp_cflags} -MD -c $< -o $@
+	${CC} ${win32_cflags} -MD -c $< -o $@
 
 -include ${testapp_objs:.o=.d}
 
