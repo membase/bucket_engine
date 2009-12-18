@@ -1,0 +1,136 @@
+Notes on building win32 memcached.exe...
+
+- circa, 2009/12/17
+
+Assume you're working in a c:/dev working directory.
+
+First, you'll need git installed, after which you can...
+
+- git clone git@github.com:CaptTofu/memcached.git memcached_win32
+
+Then...
+
+- git checkout --track origin/win32
+- git remote add memcached git://github.com/memcached/memcached.git
+
+Next, from mingw.org...
+
+- install MinGW-5.1.6.exe
+  - it provides basic tools and files, but a previous version of gcc.
+    - we'll soon overwrite it with a newer version of gcc in later steps.
+  - in the installer options, add the g++ compiler
+    - you do _not_ need the Make system, as you'll get it in later steps
+  - use defaults for everything else, into C:\MinGW
+
+- install MinGW gcc compiler version 4, at least version 4.4.0
+  - you can get it from...
+    http://sourceforge.net/projects/mingw/
+  - look for "GCC Version 4"
+    - look under "Current Release_gcc-4.4.0"
+      - look under "gcc-full-4.4.0-mingw32-bin-2.tar.lzma"
+  - after downloading it
+    - lzma -d gcc-full-4.4.0-mingw32-bin-2.tar.lzma
+  - you should have a gcc-full-4.4.0-mingw32-bin-2.tar file
+  - cd /c/mingw
+  - tar -xvf gcc-full-4.4.0-mingw32-bin-2.tar
+    - this overwrites the old gcc that you got from MinGW-5.1.6.exe
+  - especially, this should be on your path
+    - c:/mingw/bin/gcc.exe
+    - if not, add c:/mingw/bin to your path environment variable.
+
+Next, download the latest w32api...
+
+- from http://sourceforge.net/projects/mingw/files/
+     MinGW%20API%20for%20MS-Windows/w32api-3.14/
+        w32api-3.14-mingw32-dev.tar.gz/download
+  - cd /c/mingw
+  - tar -xzvf w32api-3.14-mingw32-dev.tar.gz
+
+- install MSYS (MSYS-1.0.11.exe)
+  - into c:\msys\1.0
+  - choose 'y' for all the post-install steps, and tell it about C:\MinGW
+
+Next, are library dependencies...
+
+- Path
+  Add /usr/local/lib to your PATH (%PATH% in windows, $PATH in mingw)
+  using control panel (advanced), and any other directory containing
+  DLLs you need!
+
+- Pthreads
+
+  32-bit: download and extract precompiled pthreads
+  - http://sourceware.org/pthreads-win32/
+  - look around for pthreads-w32-2-8-0-release.exe
+  - create a subdir, such as with...
+    - mkdir c:\dev\pthreads
+    - download and run it in that subdir to extract files.
+
+  64-bit:
+  - Read http://www.cadforte.com/wiki/index.php/Pthreads
+  - Obtain Pthreads source via CVS per instructions on
+    - http://sourceware.org/pthreads-win32
+  	* cvs -d :pserver:anoncvs@sourceware.org:/cvs/pthreads-win32 login
+	* enter 'anoncvs' for password
+	* cvs -d :pservers:anoncvs@sourceware.org:/cvs/pthreads-win32 checkout pthreads
+
+- Libevent
+
+  32-bit: download and extract libevent source (prefered)
+  - http://www.monkey.org/~provos/libevent-1.4.13-stable.tar.gz
+  - Build and install:
+    * ./configure --prefix=/usr/local
+    * make
+    * make install
+
+	-OR-
+
+  32-bit: binaries
+  - download and extract precompiled libevent binaries
+  - see http://www.splinedancer.com/memcached-win32/
+  - download it from...
+    http://www.splinedancer.com/memcached-win32/libevent-1.3e-Win32.zip
+  - unzip it to get the libevent.lib
+
+  64-bit: source (ONLY)
+  - http://www.monkey.org/~provos/libevent-2.0.3-alpha.tar.gz
+  - Patch: patch : patch -p1 < win32/libevent-2.0.3-alpha-mingw-w64.patch
+  - Build and install:
+  	* ./configure --prefix=/usr/local
+	* make
+    * make install
+
+Next, make a directory to hold all the dependencies.  This directory
+will be a sibling to the memcached_win32 subdirectory.  That is, do...
+
+  mkdir /c/dev/memcached_win32_deps
+
+Copy all the p*.h, *.a, *.lib, and *.dll files from pthreads*/**
+into the memcached_win32_deps subdirectory.
+
+Copy all the ev*.h, *.a, *.lib, and *.dll files from libevent*/**
+into the memcached_win32_deps subdirectory.
+
+Next, more PATH...
+
+- add /usr/local/lib to your PATH
+
+And, because it still might have trouble finding libraries
+
+- cp /usr/local/lib/* /c/mingw/lib
+
+Next, start a msys shell window...
+
+  c:\msys\1.0\msys.bat
+
+  Or click on 'rxvt' shell window from startup menu
+
+- in that msys shell (which will have a MINGW32 titlebar),
+  change to the /c/dev/memcached_win32 directory.
+
+  cd /c/dev/memcached_win32
+
+Then...
+
+  make -f Makefile.mingw
+
