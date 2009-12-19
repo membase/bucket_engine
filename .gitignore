@@ -37,3 +37,6 @@ tags
 /testapp
 *.dSYM
 *.d
+*.dll
+*.exe
+.libs

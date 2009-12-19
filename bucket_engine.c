@@ -40,6 +40,9 @@ struct bucket_engine {
     SERVER_HANDLE_V1 *server;
 };
 
+#ifdef WIN32
+__cdecl __declspec(dllimport)
+#endif
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
@@ -119,6 +122,9 @@ struct bucket_engine bucket_engine = {
     .initialized = false,
 };
 
+#ifdef WIN32
+__cdecl __declspec(dllimport)
+#endif
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {

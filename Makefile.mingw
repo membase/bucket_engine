@@ -4,8 +4,10 @@
 CC := mingw32-gcc
 
 testapp_obj := testapp.exe
+mock_engine_obj := mock_engine.so.dll
+bucket_engine_obj := bucket_engine.so.dll
 
-all: ${testapp_obj}
+all: ${testapp_obj} ${mock_engine_obj} ${bucket_engine_obj}
 
 win32_objs := win32/defs.o
 win32_objs += win32/win32.o
@@ -15,33 +17,46 @@ win32_objs += win32/dlfcn.o
 win32_cflags := -std=gnu99 -O2
 win32_cflags += -Imemcached/include
 win32_cflags += -Iwin32 -Iwin32/include
+
 # win32_cflags += -fno-strict-aliasing
 # win32_cflags += -Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
 # win32_cflags += -Wmissing-declarations -Wredundant-decls
 # win32_cflags += -DHAVE_CONFIG_H
 
+win32_ldflags := -lwsock32 -lws2_32
+
 testapp_objs := testapp.o
-testapp_objs += bucket_engine.o genhash.o config_parser.o mock_engine.o util.o
 testapp_objs += ${win32_objs}
+testapp_ldflags := ${win32_ldflags}
+
+mock_engine_objs := mock_engine.o genhash.o
+mock_engine_objs += ${win32_objs}
+mock_engine_ldflags := ${win32_ldflags} -lpthread -shared
 
 bucket_engine_objs := bucket_engine.o genhash.o config_parser.o util.o
-mock_engine_objs := mock_engine.o genhash.o
-
-testapp_ldflags := -lwsock32 -lws2_32
-testapp_ldflags += -lpthread
-# testapp_ldflags += -levent
-# testapp_ldflags += -L../testapp_win32_deps
+bucket_engine_objs += ${win32_objs}
+bucket_engine_ldflags := ${win32_ldflags} -lpthread -shared
 
 %.o: %.c
 	${CC} ${win32_cflags} -MD -c $< -o $@
 
--include ${testapp_objs:.o=.d}
-
 ${testapp_obj}: ${testapp_objs}
 	${CC} -o ${testapp_obj} ${testapp_objs} ${testapp_ldflags}
 
+${mock_engine_obj}: ${mock_engine_objs}
+	${CC} -o ${mock_engine_obj} ${mock_engine_objs} ${mock_engine_ldflags}
+
+${bucket_engine_obj}: ${bucket_engine_objs}
+	${CC} -o ${bucket_engine_obj} ${bucket_engine_objs} ${bucket_engine_ldflags}
+
+prep: ${mock_engine_obj} ${bucket_engine_obj}
+	test -d .libs || mkdir .libs
+	cp ${mock_engine_obj} .libs
+	cp ${bucket_engine_obj} .libs
+
 clean:
 	rm -f ${testapp_objs:.o=.d} ${testapp_objs} ${testapp_obj}
+	rm -rf .libs
 
-
-
+test: ${testapp_obj} prep
+	${testapp_obj}
