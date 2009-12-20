@@ -17,7 +17,7 @@ void* dlsym(void* handle, const char* symbol) {
 int dlclose(void* handle) {
   // dlclose returns zero on success.
   // FreeLibrary returns nonzero on success.
-  (int) !FreeLibrary((HINSTANCE) handle);
+  (int) (FreeLibrary((HINSTANCE) handle) != 0);
 }
 
 static char dlerror_buf[200];
