@@ -300,11 +300,11 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
     ENGINE_ERROR_CODE rv;
     if((rv = mock_item_allocate(handle, cookie, &item_out,
                                 key, nkey,
-                                strlen(buf),
+                                strlen(buf) + 1,
                                 flags, exptime)) != ENGINE_SUCCESS) {
         return rv;
     }
-    memcpy(item_get_data(item_out), buf, strlen(buf));
+    memcpy(item_get_data(item_out), buf, strlen(buf) + 1);
     mock_store(handle, cookie, item_out, 0, OPERATION_SET);
     return ENGINE_SUCCESS;
 }
