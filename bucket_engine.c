@@ -21,6 +21,7 @@ typedef union proxied_engine {
 
 typedef struct proxied_engine_handle {
     proxied_engine_t pe;
+    struct thread_stats *stats;
     int refcount;
     bool valid;
 } proxied_engine_handle_t;
@@ -144,6 +145,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
             peh->pe.v1->destroy(peh->pe.v0);
+            bucket_engine.server->release_stats(peh->stats);
             free(peh);
         }
     }
@@ -176,6 +178,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
+    peh->stats = e->server->new_stats();
     peh->refcount = 1;
     peh->valid = true;
     assert(peh);
