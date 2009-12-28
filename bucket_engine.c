@@ -154,7 +154,7 @@ static void retain_handle(proxied_engine_handle_t *peh) {
 static bool has_valid_bucket_name(const char *n) {
     bool rv = strlen(n) > 0;
     for (; *n; n++) {
-        rv &= isalpha(*n) || isdigit(*n) || *n == '.';
+        rv &= isalpha(*n) || isdigit(*n) || *n == '.' || *n == '%' || *n == '_';
     }
     return rv;
 }
