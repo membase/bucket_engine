@@ -19,5 +19,7 @@ testapp_DEPENDENCIES = mock_engine.la
 testapp_CFLAGS = $(common_CFLAGS)
 testapp_LDFLAGS = $(common_LDFLAGS)
 
+pkgdata_SCRIPTS = management/create_bucket.py  management/delete_bucket.py  management/list_buckets.py  management/mc_bin_client.py  management/memcacheConstants.py
+
 test: testapp
 	./testapp
