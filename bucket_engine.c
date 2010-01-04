@@ -76,6 +76,12 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const char *stat_key,
                                           int nkey,
                                           ADD_STAT add_stat);
+static struct thread_stats *bucket_get_stats_struct(ENGINE_HANDLE* handle,
+                                                    const void *cookie);
+static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
+                                                const void* cookie,
+                                                void (*callback)(struct thread_stats*, struct thread_stats*),
+                                                struct thread_stats*);
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
@@ -114,6 +120,8 @@ struct bucket_engine bucket_engine = {
         .release = bucket_item_release,
         .get = bucket_get,
         .get_stats = bucket_get_stats,
+        .get_stats_struct = bucket_get_stats_struct,
+        .aggregate_stats = bucket_aggregate_stats,
         .reset_stats = bucket_reset_stats,
         .store = bucket_store,
         .arithmetic = bucket_arithmetic,
@@ -145,7 +153,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
             peh->pe.v1->destroy(peh->pe.v0);
-            bucket_engine.server->release_stats(peh->stats);
+	    bucket_engine.server->release_stats(peh->stats);
             free(peh);
         }
     }
@@ -178,10 +186,11 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
+    assert(peh);
     peh->stats = e->server->new_stats();
+    assert(peh->stats);
     peh->refcount = 1;
     peh->valid = true;
-    assert(peh);
 
     ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
     // This was already verified, but we'll check it anyway
@@ -503,17 +512,90 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
     }
 }
 
+struct bucket_list {
+    char *name;
+    proxied_engine_handle_t *peh;
+    struct bucket_list *next;
+};
+
+static void add_engine(const void *key, size_t nkey,
+                  const void *val, size_t nval,
+                  void *arg) {
+    struct bucket_list **blist_ptr = (struct bucket_list **)arg;
+    struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
+    assert(n);
+    n->name = strdup(key);
+    assert(n->name);
+    n->peh = (proxied_engine_handle_t*) val;
+    assert(n->peh);
+    retain_handle(n->peh);
+    n->next = *blist_ptr;
+    *blist_ptr = n;
+}
+
+static bool list_buckets(struct bucket_engine *e, struct bucket_list **blist) {
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        genhash_iter(e->engines, add_engine, blist);
+        pthread_mutex_unlock(&e->engines_mutex);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static void bucket_list_free(struct bucket_list *blist) {
+    struct bucket_list *p = blist;
+    while (p) {
+        free(p->name);
+        release_handle(p->peh);
+        struct bucket_list *tmp = p->next;
+        free(p);
+        p = tmp;
+    }
+}
+
+static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
+                                                const void* cookie,
+                                                void (*callback)(struct thread_stats *, struct thread_stats *),
+                                                struct thread_stats *stats) {
+
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    struct bucket_list *blist = NULL;
+    if (! list_buckets(e, &blist)) {
+        return ENGINE_FAILED;
+    }
+
+    struct bucket_list *p = blist;
+    while (p) {
+        callback(p->peh->stats, stats);
+	p = p->next;
+    }
+
+    bucket_list_free(blist);
+    return ENGINE_SUCCESS;
+}
+
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const char* stat_key,
                                           int nkey,
-                                          ADD_STAT add_stat)
-{
+                                          ADD_STAT add_stat) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         return e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
     } else {
         return ENGINE_FAILED;
+    }
+}
+
+static struct thread_stats *bucket_get_stats_struct(ENGINE_HANDLE* handle,
+                                                    const void* cookie) {
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
+    if (peh != NULL && peh->valid) {
+        return peh->stats;
+    } else {
+        return NULL;
     }
 }
 
@@ -675,23 +757,6 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-struct bucket_list {
-    char *name;
-    struct bucket_list *next;
-};
-
-static void add_engine(const void *key, size_t nkey,
-                  const void *val, size_t nval,
-                  void *arg) {
-    struct bucket_list **blist_ptr = (struct bucket_list **)arg;
-    struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
-    assert(n);
-    n->name = strdup(key);
-    assert(n->name);
-    n->next = *blist_ptr;
-    *blist_ptr = n;
-}
-
 static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              protocol_binary_request_header *request,
@@ -700,10 +765,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
 
     // Accumulate the current bucket list.
     struct bucket_list *blist = NULL;
-    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        genhash_iter(e->engines, add_engine, &blist);
-        pthread_mutex_unlock(&e->engines_mutex);
-    } else {
+    if (! list_buckets(e, &blist)) {
         return ENGINE_FAILED;
     }
 
@@ -724,11 +786,9 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
         if (p->next) {
             strcat(blist_txt, " ");
         }
-        free(p->name);
-        struct bucket_list *tmp = p->next;
-        free(p);
-        p = tmp;
     }
+
+    bucket_list_free(blist);
 
     // Response body will be "" in the case of an empty response.
     // Otherwise, it needs to account for the trailing space of the
