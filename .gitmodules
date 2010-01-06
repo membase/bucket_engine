@@ -1,3 +1,0 @@
-[submodule "memcached"]
-	path = memcached
-	url = git://github.com/dustin/memcached.git
