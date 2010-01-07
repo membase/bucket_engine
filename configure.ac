@@ -21,10 +21,10 @@ if test "x$enable_coverage" = "xyes"; then
    if test "$ICC" = "yes"
    then
       dnl ICC trying to be gcc, but not well
-      CFLAGS="$CFLAGS -pthread"
+      CFLAGS="$CFLAGS -Wall -pthread"
    elif test "$GCC" = "yes"
    then
-      CFLAGS="$CFLAGS -pthread"
+      CFLAGS="$CFLAGS -Wall -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
          AC_CHECK_LIB(gcov, main,
@@ -89,7 +89,7 @@ AC_CACHE_CHECK([for memcached directory], ac_cv_memcached_dir, [
   done
   CPPFLAGS="$saved_CPPFLAGS"
   if test $mc_found = no ; then
-    AC_MSG_ERROR([memcached is required. 
+    AC_MSG_ERROR([memcached is required.
 
       If it's already installed, specify its path using --with-memcached=/dir/
 ])

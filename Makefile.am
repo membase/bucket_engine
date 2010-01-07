@@ -1,4 +1,4 @@
-common_CFLAGS=-Wall @PROFILER_FLAGS@
+common_CFLAGS=@PROFILER_FLAGS@
 common_LDFLAGS=-g @PROFILER_LDFLAGS@
 
 lib_LTLIBRARIES = bucket_engine.la
