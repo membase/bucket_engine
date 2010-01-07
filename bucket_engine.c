@@ -780,6 +780,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
         if (p->next) {
             strcat(blist_txt, " ");
         }
+        p = p->next;
     }
 
     bucket_list_free(blist);
