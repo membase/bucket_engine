@@ -118,6 +118,19 @@ static void *get_engine_specific(const void *cookie) {
     return c ? c->engine_data : NULL;
 }
 
+static struct thread_stats *create_stats() {
+    /* XXX: Not sure if ``big buffer'' is right in faking this part of
+       the server. */
+    struct thread_stats *s = calloc(1, 256);
+    assert(s);
+    return s;
+}
+
+static void destroy_stats(struct thread_stats *s) {
+    assert(s);
+    free(s);
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @param interface the requested interface from the server
@@ -131,7 +144,9 @@ static void *get_server_api(int interface)
         .get_auth_data = get_auth_data,
         .server_version = get_server_version,
         .get_engine_specific = get_engine_specific,
-        .store_engine_specific = store_engine_specific
+        .store_engine_specific = store_engine_specific,
+        .new_stats = create_stats,
+        .release_stats = destroy_stats,
     };
 
     if (interface != 1) {
