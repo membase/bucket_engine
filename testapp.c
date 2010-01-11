@@ -5,6 +5,9 @@
 #include <dlfcn.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "bucket_engine.h"
 
@@ -26,6 +29,8 @@ char *last_body = NULL;
 enum test_result {
     SUCCESS = 11,
     FAIL    = 13,
+    DIED    = 14,
+    CORE    = 15,
     PENDING = 19
 };
 
@@ -937,6 +942,16 @@ static int report_test(enum test_result r) {
         msg="FAIL";
         rc = 1;
         break;
+    case DIED:
+        color = 31;
+        msg = "DIED";
+        rc = 1;
+        break;
+    case CORE:
+        color = 31;
+        msg = "CORE DUMPED";
+        rc = 1;
+        break;
     case PENDING:
         color = 33;
         msg = "PENDING";
@@ -974,17 +989,42 @@ static void destroy_event_handlers() {
     }
 }
 
-static int run_test(struct test test) {
-    last_status = 0xff;
-    int rc = 0;
-    /* Start the engines and go */
-    ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
-    rc = report_test(test.tfun((ENGINE_HANDLE*)h, h));
-    disconnect_all_connections(connstructs);
-    destroy_event_handlers();
-    connstructs = NULL;
-    h->destroy((ENGINE_HANDLE*)h);
-    return rc;
+static enum test_result run_test(struct test test) {
+    enum test_result ret = PENDING;
+    if (test.tfun != NULL) {
+        last_status = 0xff;
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* Start the engines and go */
+            ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
+            ret = test.tfun((ENGINE_HANDLE*)h, h);
+            disconnect_all_connections(connstructs);
+            destroy_event_handlers();
+            connstructs = NULL;
+            h->destroy((ENGINE_HANDLE*)h);
+            exit((int)ret);
+        } else if (pid == (pid_t)-1) {
+            ret = FAIL;
+        } else {
+            int rc;
+            while (waitpid(pid, &rc, 0) == (pid_t)-1) {
+                if (errno != EINTR) {
+                    abort();
+                }
+            }
+
+            if (WIFEXITED(rc)) {
+                ret = (enum test_result)WEXITSTATUS(rc);
+            } else if (WIFSIGNALED(rc) && WCOREDUMP(rc)) {
+                ret = CORE;
+            } else {
+                ret = DIED;
+            }
+        }
+    }
+
+    return ret;
 }
 
 int main(int argc, char **argv) {
@@ -1038,11 +1078,7 @@ int main(int argc, char **argv) {
     for (i = 0; tests[i].name; i++) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
-        if (tests[i].tfun) {
-            rc += run_test(tests[i]);
-        } else {
-            rc += report_test(PENDING);
-        }
+	rc += report_test(run_test(tests[i]));
     }
 
     return rc;
