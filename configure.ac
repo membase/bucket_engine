@@ -31,6 +31,7 @@ if test "x$enable_coverage" = "xyes"; then
                     [
                       PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
                       PROFILER_LDFLAGS="-lgcov"
+                      CFLAGS="$CFLAGS -DUSE_GCOV=1"
                     ], [
                       PROFILER_FLAGS=
                       PROFILER_LDFLAGS=

@@ -993,9 +993,10 @@ static enum test_result run_test(struct test test) {
     enum test_result ret = PENDING;
     if (test.tfun != NULL) {
         last_status = 0xff;
-
+#ifndef USE_GCOV
         pid_t pid = fork();
         if (pid == 0) {
+#endif
             /* Start the engines and go */
             ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
             ret = test.tfun((ENGINE_HANDLE*)h, h);
@@ -1003,6 +1004,7 @@ static enum test_result run_test(struct test test) {
             destroy_event_handlers();
             connstructs = NULL;
             h->destroy((ENGINE_HANDLE*)h);
+#ifndef USE_GCOV
             exit((int)ret);
         } else if (pid == (pid_t)-1) {
             ret = FAIL;
@@ -1022,6 +1024,7 @@ static enum test_result run_test(struct test test) {
                 ret = DIED;
             }
         }
+#endif
     }
 
     return ret;
