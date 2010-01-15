@@ -4,7 +4,11 @@
 #include <dlfcn.h>
 #include <string.h>
 #include <pthread.h>
+#ifndef WIN32
 #include <arpa/inet.h>
+#else
+#include <winsock.h>
+#endif
 
 #include <assert.h>
 

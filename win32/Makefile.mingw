@@ -1,0 +1,26 @@
+# Hard coded Makefile for windows
+CC = gcc
+
+all: bucket_engine.so
+
+MEMCACHED_HEADERS=../memcached/include
+
+CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
+ -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
+ -Iwin32 -I${MEMCACHED_HEADERS} -DHAVE_CONFIG_H
+
+BUCKET_ENGINE_OBJS = bucket_engine.o genhash.o util.o win32/dlfcn.o
+
+bucket_engine.so: $(BUCKET_ENGINE_OBJS)
+	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
+                  -L/lib -lpthreadGC2 -lws2_32
+
+%.o: %.c
+	${COMPILE.c} -MD $< -o $@
+
+clean:
+	$(RM) ${BUCKET_ENGINE_OBJS} \
+              ${BUCKET_ENGINE_OBJS:.o=.d} \
+              bucket_engine.so
+
+-include ${BUCKET_ENGINE_OBJS:.o=.d}
