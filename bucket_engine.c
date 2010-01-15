@@ -665,7 +665,7 @@ static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
             { .key = NULL}
         };
 
-        ret = parse_config(cfg_str, items, stderr);
+        ret = me->server->parse_config(cfg_str, items, stderr);
     }
 
     return ret;
