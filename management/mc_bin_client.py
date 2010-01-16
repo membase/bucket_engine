@@ -185,6 +185,9 @@ class MemcachedClient(object):
         """Create a bucket."""
         return self._doCmd(memcacheConstants.CMD_EXPAND_BUCKET, name, str(new_size))
 
+    def bucket_select(self, name):
+        return self._doCmd(memcacheConstants.CMD_SELECT_BUCKET, name, '')
+
     def getMulti(self, keys):
         """Get values for any available keys in the given iterable.
 
