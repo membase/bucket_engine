@@ -1,0 +1,59 @@
+# Linux, cross compile
+#CC := i386-mingw32msvc-gcc
+# Windows
+CC := gcc
+
+OBJDIR = .libs .libs/win32
+GENHASH_DIR=../genhash
+MEMCACHED_INCLUDE_DIR=../memcached/include
+TESTAPP_OBJ = testapp.exe
+MOCK_ENGINE_OBJ = .libs/mock_engine.so
+BUCKET_ENGINE_OBJ = .libs/bucket_engine.so
+
+all: ${TESTAPP_OBJ} ${MOCK_ENGINE_OBJ} ${BUCKET_ENGINE_OBJ}
+
+WIN32_SRC = win32/defs.c win32/win32.c win32/dlfcn.c
+
+WIN32_OBJS = ${WIN32_SRC:%.c=.libs/%.o}
+
+CFLAGS = -std=gnu99 -O2 -Iwin32 -Iwin32/include -I${MEMCACHED_INCLUDE_DIR}
+
+# win32_cflags += -fno-strict-aliasing
+# win32_cflags += -Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
+# win32_cflags += -Wmissing-declarations -Wredundant-decls
+# win32_cflags += -DHAVE_CONFIG_H
+
+LDFLAGS = -lwsock32 -lws2_32
+ENGINE_LDFLAGS := ${LDFLAGS} -L${GENHASH_DIR} -lgenhash -lpthread -shared
+
+TESTAPP_SRC = testapp.c
+TESTAPP_OBJS = ${TESTAPP_SRC:%.c=.libs/%.o}
+
+TESTAPP_LDFLAGS = ${LDFLAGS}
+
+MOCK_ENGINE_SRC = mock_engine.c
+MOCK_ENGINE_OBJS = ${MOCK_ENGINE_SRC:%.c=.libs/%.o}
+
+BUCKET_ENGINE_SRC = bucket_engine.c config_parser.c util.c
+BUCKET_ENGINE_OBJS = ${BUCKET_ENGINE_SRC:%.c=.libs/%.o}
+
+.libs .libs/win32:; -@mkdir $@
+
+.libs/%.o: %.c
+	${COMPILE.c} -MMD $< -o $@
+
+${TESTAPP_OBJ}: ${OBJDIR} ${WIN32_OBJS} ${TESTAPP_OBJS}
+	${LINK.c} -o $@ ${WIN32_OBJS} ${TESTAPP_OBJS} ${LDFLAGS}
+
+${MOCK_ENGINE_OBJ}: ${OBJDIR} ${WIN32_OBJS} ${MOCK_ENGINE_OBJS}
+	${LINK.c} -o $@ ${WIN32_OBJS} ${MOCK_ENGINE_OJBS} ${ENGINE_LDFLAGS}
+
+${BUCKET_ENGINE_OBJ}: ${OBJDIR} ${WIN32_OBJS} ${BUCKET_ENGINE_OBJS}
+	${LINK.c} -o $@ ${WIN32_OBJS} ${BUCKET_ENGINE_OBJS} ${ENGINE_LDFLAGS}
+
+clean:
+	rm -f ${TESTAPP_OBJS:.o=.d} ${TESTAPP_OBJS} ${TESTAPP_OBJ}
+	rm -rf ${OBJDIR}
+
+test: ${TESTAPP_OBJ} prep
+	${TESTAPP_OBJ}
