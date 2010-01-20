@@ -18,18 +18,11 @@ WIN32_OBJS = ${WIN32_SRC:%.c=.libs/%.o}
 
 CFLAGS = -std=gnu99 -O2 -Iwin32 -Iwin32/include -I${MEMCACHED_INCLUDE_DIR}
 
-# win32_cflags += -fno-strict-aliasing
-# win32_cflags += -Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
-# win32_cflags += -Wmissing-declarations -Wredundant-decls
-# win32_cflags += -DHAVE_CONFIG_H
-
 LDFLAGS = -lwsock32 -lws2_32
 ENGINE_LDFLAGS := ${LDFLAGS} -L${GENHASH_DIR} -lgenhash -lpthread -shared
 
 TESTAPP_SRC = testapp.c
 TESTAPP_OBJS = ${TESTAPP_SRC:%.c=.libs/%.o}
-
-TESTAPP_LDFLAGS = ${LDFLAGS}
 
 MOCK_ENGINE_SRC = mock_engine.c
 MOCK_ENGINE_OBJS = ${MOCK_ENGINE_SRC:%.c=.libs/%.o}
@@ -53,7 +46,7 @@ ${BUCKET_ENGINE_OBJ}: ${OBJDIR} ${WIN32_OBJS} ${BUCKET_ENGINE_OBJS}
 
 clean:
 	rm -f ${TESTAPP_OBJS:.o=.d} ${TESTAPP_OBJS} ${TESTAPP_OBJ}
-	rm -rf ${OBJDIR}
+	rm -rf .libs 
 
 test: ${TESTAPP_OBJ} prep
 	${TESTAPP_OBJ}
