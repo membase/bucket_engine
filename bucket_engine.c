@@ -77,12 +77,12 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const char *stat_key,
                                           int nkey,
                                           ADD_STAT add_stat);
-static struct thread_stats *bucket_get_stats_struct(ENGINE_HANDLE* handle,
+static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                                     const void *cookie);
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
-                                                void (*callback)(struct thread_stats*, struct thread_stats*),
-                                                struct thread_stats*);
+                                                void (*callback)(const void*, void*),
+                                                void *stats);
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
@@ -151,7 +151,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
             peh->pe.v1->destroy(peh->pe.v0);
-	    bucket_engine.server->release_stats(peh->stats);
+            bucket_engine.server->release_stats(peh->stats);
             free(peh);
         }
     }
@@ -166,7 +166,7 @@ static void retain_handle(proxied_engine_handle_t *peh) {
 static bool has_valid_bucket_name(const char *n) {
     bool rv = strlen(n) > 0;
     for (; *n; n++) {
-        rv &= isalpha(*n) || isdigit(*n) || *n == '.' || *n == '%' || *n == '_' || n == '-';
+        rv &= isalpha(*n) || isdigit(*n) || *n == '.' || *n == '%' || *n == '_' || *n == '-';
     }
     return rv;
 }
@@ -554,8 +554,8 @@ static void bucket_list_free(struct bucket_list *blist) {
 
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
-                                                void (*callback)(struct thread_stats *, struct thread_stats *),
-                                                struct thread_stats *stats) {
+                                                void (*callback)(const void*, void*),
+                                                void *stats) {
 
     struct bucket_engine *e = (struct bucket_engine*)handle;
     struct bucket_list *blist = NULL;
@@ -566,7 +566,7 @@ static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
     struct bucket_list *p = blist;
     while (p) {
         callback(p->peh->stats, stats);
-	p = p->next;
+        p = p->next;
     }
 
     bucket_list_free(blist);
@@ -586,8 +586,8 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     }
 }
 
-static struct thread_stats *bucket_get_stats_struct(ENGINE_HANDLE* handle,
-                                                    const void* cookie) {
+static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
+                                     const void* cookie) {
     struct bucket_engine *e = (struct bucket_engine*)handle;
     proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
     if (peh != NULL && peh->valid) {
