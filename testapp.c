@@ -123,15 +123,15 @@ static void *get_engine_specific(const void *cookie) {
     return c ? c->engine_data : NULL;
 }
 
-static struct thread_stats *create_stats() {
+static void *create_stats() {
     /* XXX: Not sure if ``big buffer'' is right in faking this part of
        the server. */
-    struct thread_stats *s = calloc(1, 256);
+    void *s = calloc(1, 256);
     assert(s);
     return s;
 }
 
-static void destroy_stats(struct thread_stats *s) {
+static void destroy_stats(void *s) {
     assert(s);
     free(s);
 }

@@ -13,7 +13,6 @@
 #include <assert.h>
 
 #include <memcached/engine.h>
-#include <memcached/config_parser.h>
 
 #include "genhash.h"
 #include "bucket_engine.h"
@@ -81,7 +80,7 @@ static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                                     const void *cookie);
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
-                                                void (*callback)(const void*, void*),
+                                                void (*callback)(void*, void*),
                                                 void *stats);
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
@@ -554,7 +553,7 @@ static void bucket_list_free(struct bucket_list *blist) {
 
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
-                                                void (*callback)(const void*, void*),
+                                                void (*callback)(void*, void*),
                                                 void *stats) {
 
     struct bucket_engine *e = (struct bucket_engine*)handle;
