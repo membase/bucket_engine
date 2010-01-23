@@ -633,7 +633,11 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
                                       const void* cookie, time_t when) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    return e->v1->flush(e->v0, cookie, when);
+    if (e) {
+      return e->v1->flush(e->v0, cookie, when);
+    } else {
+      return ENGINE_SUCCESS;
+    }
 }
 
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
