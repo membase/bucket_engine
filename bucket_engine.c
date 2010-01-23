@@ -101,8 +101,8 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            uint64_t *result);
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
                                       const void* cookie, time_t when);
-static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
-                                                 const char *cfg_str);
+static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
+                                                  const char *cfg_str);
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 protocol_binary_request_header *request,
@@ -386,7 +386,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_FAILED;
     }
 
-    ENGINE_ERROR_CODE ret = initalize_configuration(se, config_str);
+    ENGINE_ERROR_CODE ret = initialize_configuration(se, config_str);
     if (ret != ENGINE_SUCCESS) {
         return ret;
     }
@@ -647,8 +647,8 @@ static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     }
 }
 
-static ENGINE_ERROR_CODE initalize_configuration(struct bucket_engine *me,
-                                                 const char *cfg_str) {
+static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
+                                                  const char *cfg_str) {
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     me->auto_create = true;
