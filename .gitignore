@@ -37,3 +37,5 @@ Makefile.in
 TAGS
 cscope.out
 tags
+bucket_engine_*.tar.gz
+tmp
