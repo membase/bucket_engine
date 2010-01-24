@@ -23,4 +23,12 @@ clean:
               ${BUCKET_ENGINE_OBJS:.o=.d} \
               bucket_engine.so
 
+bdist: all
+	rm -rf bucket_engine_win32
+	mkdir bucket_engine_win32
+	cp .libs/bucket_engine.so bucket_engine_win32
+	tar -czvf bucket_engine_win32-`git describe`.tar.gz bucket_engine_win32
+	rm -rf bucket_engine_win32
+
 -include ${BUCKET_ENGINE_OBJS:.o=.d}
+
