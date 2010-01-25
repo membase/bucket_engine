@@ -7,13 +7,13 @@ MEMCACHED_HEADERS=../memcached/include
 
 CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
  -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
- -Iwin32 -I${MEMCACHED_HEADERS} -DHAVE_CONFIG_H
+ -Iwin32 -I/usr/local/include -I${MEMCACHED_HEADERS} -DHAVE_CONFIG_H
 
-BUCKET_ENGINE_OBJS = bucket_engine.o genhash.o util.o win32/dlfcn.o
+BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o
 
 bucket_engine.so: $(BUCKET_ENGINE_OBJS)
 	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
-                  -L/lib -lpthreadGC2 -lws2_32
+                 -L../genhash -L/lib -lpthreadGC2 -lmswsock -lws2_32
 
 %.o: %.c
 	${COMPILE.c} -MD $< -o $@
