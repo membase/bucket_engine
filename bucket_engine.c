@@ -359,17 +359,17 @@ static void handle_auth(const void *cookie,
     // Free up the default engine (or user engine if re-auth).
     release_handle(e->server->get_engine_specific(cookie));
 
-    const char *user = (const char *)event_data;
+    const auth_data_t *auth_data = (const auth_data_t*)event_data;
     proxied_engine_handle_t *peh = NULL;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        peh = genhash_find(e->engines, user, strlen(user));
+        peh = genhash_find(e->engines, auth_data->username, strlen(auth_data->username));
         pthread_mutex_unlock(&e->engines_mutex);
     } else {
         return;
     }
     if (!peh && e->auto_create) {
         // XXX:  Need default config
-        create_bucket(e, user, "", &peh);
+        create_bucket(e, auth_data->username, auth_data->config ? auth_data->config : "", &peh);
     }
     retain_handle(peh);
     e->server->store_engine_specific(cookie, peh);
@@ -808,9 +808,10 @@ static bool authorized(ENGINE_HANDLE* handle,
     struct bucket_engine *e = (struct bucket_engine*)handle;
     bool rv = false;
     if (e->admin_user) {
-        const char *user = e->server->get_auth_data(cookie);
-        if (user) {
-            rv = strcmp(user, e->admin_user) == 0;
+        auth_data_t data;
+        e->server->get_auth_data(cookie, &data);
+        if (data.username) {
+            rv = strcmp(data.username, e->admin_user) == 0;
         }
     }
     return rv;
