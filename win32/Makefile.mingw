@@ -13,7 +13,7 @@ BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o
 
 bucket_engine.so: $(BUCKET_ENGINE_OBJS)
 	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
-                 -L../genhash -L/lib -lpthreadGC2 -lmswsock -lws2_32
+                 -L../genhash -L/lib -lpthreadGC2 -lgenhash -lpthread -lmswsock -lws2_32
 
 %.o: %.c
 	${COMPILE.c} -MD $< -o $@
@@ -26,7 +26,7 @@ clean:
 bdist: all
 	rm -rf bucket_engine_win32
 	mkdir bucket_engine_win32
-	cp .libs/bucket_engine.so bucket_engine_win32
+	cp bucket_engine.so bucket_engine_win32
 	tar -czvf bucket_engine_win32-`git describe`.tar.gz bucket_engine_win32
 	rm -rf bucket_engine_win32
 
