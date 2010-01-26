@@ -71,13 +71,17 @@ static const char* get_server_version() {
     return "bucket mock";
 }
 
-static const char* get_auth_data(const void *cookie) {
+static void get_auth_data(const void *cookie, auth_data_t *data) {
     struct connstruct *c = (struct connstruct *)cookie;
-    return c ? c->uname : NULL;
+    if (c != NULL) {
+        data->username = c->uname;
+        data->config = "";
+    }
 }
 
 static struct connstruct *mk_conn(const char *user) {
     struct connstruct *rv = calloc(sizeof(struct connstruct), 1);
+    auth_data_t ad;
     assert(rv);
     rv->magic = CONN_MAGIC;
     rv->uname = user ? strdup(user) : NULL;
@@ -86,7 +90,9 @@ static struct connstruct *mk_conn(const char *user) {
     connstructs = rv;
     perform_callbacks(ON_CONNECT, NULL, rv);
     if (rv->uname) {
-        perform_callbacks(ON_AUTH, rv->uname, rv);
+        ad.username = rv->uname;
+        ad.config = "";
+        perform_callbacks(ON_AUTH, (const void*)&ad, rv);
     }
     return rv;
 }
@@ -152,6 +158,7 @@ static void *get_server_api(int interface)
         .store_engine_specific = store_engine_specific,
         .new_stats = create_stats,
         .release_stats = destroy_stats,
+        .parse_config = parse_config,
     };
 
     if (interface != 1) {

@@ -18,7 +18,7 @@ mock_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere $(common_LDFLAGS)
 
 noinst_PROGRAMS = testapp
 testapp_SOURCES = testapp.c
-testapp_DEPENDENCIES = mock_engine.la
+testapp_DEPENDENCIES = mock_engine.la 
 testapp_CFLAGS = $(common_CFLAGS)
 testapp_LDFLAGS = $(common_LDFLAGS)
 
