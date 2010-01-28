@@ -4,8 +4,8 @@
 #include <assert.h>
 
 #include <memcached/engine.h>
+#include <memcached/genhash.h>
 
-#include "genhash.h"
 #include "bucket_engine.h"
 
 #define MAGIC 0x426D4639C1BFEC3ll

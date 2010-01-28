@@ -13,8 +13,8 @@
 #include <assert.h>
 
 #include <memcached/engine.h>
+#include <memcached/genhash.h>
 
-#include "genhash.h"
 #include "bucket_engine.h"
 
 typedef union proxied_engine {
