@@ -1,4 +1,10 @@
 # Hard coded Makefile for windows
+
+TMP_DIR=./tmp
+
+TMP_VER=$(TMP_DIR)/version_num.tmp
+TMP_OS=$(TMP_DIR)/os.tmp
+
 CC = gcc
 
 all: bucket_engine.so
@@ -27,12 +33,18 @@ clean:
               ${BUCKET_ENGINE_OBJS:.o=.d} \
               bucket_engine.so
 
-bdist: all
-	rm -rf bucket_engine_win32
-	mkdir bucket_engine_win32
-	cp bucket_engine.so bucket_engine_win32
-	tar -czvf bucket_engine_win32-`git describe`.tar.gz bucket_engine_win32
-	rm -rf bucket_engine_win32
+version:
+	test -d $(TMP_DIR) || mkdir $(TMP_DIR)
+	git describe | sed s/-/_/g > $(TMP_VER)
+
+bdist: bucket_engine.so version
+	rm -f ./bucket_engine_*.tar.gz
+	rm -rf $(TMP_DIR)/bucket_engine
+	mkdir $(TMP_DIR)/bucket_engine
+	cp bucket_engine.so $(TMP_DIR)/bucket_engine
+	uname -s > $(TMP_OS)
+	tar --directory $(TMP_DIR) -czf bucket_engine_`cat $(TMP_VER)`-`cat $(TMP_OS)`.`uname -m`.tar.gz bucket_engine
+	echo created bucket_engine_`cat $(TMP_VER)`-`cat $(TMP_OS)`.`uname -m`.tar.gz
 
 -include ${BUCKET_ENGINE_OBJS:.o=.d}
 
