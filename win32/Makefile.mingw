@@ -9,7 +9,8 @@ CC = gcc
 
 all: bucket_engine.so
 
-MEMCACHED_HEADERS=../memcached/include
+MEMCACHED=../memcached
+MEMCACHED_HEADERS=${MEMCACHED}/include
 
 LIB=/lib
 INCLUDE=/include
@@ -19,7 +20,7 @@ CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
  -I${INCLUDE} -Iwin32 -I/usr/local/include -I${MEMCACHED_HEADERS} \
  -DHAVE_CONFIG_H
 
-BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o
+BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o ${MEMCACHED}/.libs/genhash.o
 
 bucket_engine.so: $(BUCKET_ENGINE_OBJS)
 	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
