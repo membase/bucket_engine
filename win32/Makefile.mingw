@@ -17,7 +17,7 @@ BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o
 
 bucket_engine.so: $(BUCKET_ENGINE_OBJS)
 	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
-              -L${GENHASH_DIR} -L${LIB} -L/lib -lpthreadGC2 -lgenhash -lpthread -lmswsock -lws2_32
+              -L${GENHASH_DIR} -L${LIB} -L/lib -lgenhash -lpthread -lmswsock -lws2_32
 
 %.o: %.c
 	${COMPILE.c} -MD $< -o $@
