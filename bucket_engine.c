@@ -36,6 +36,7 @@ struct bucket_engine {
     bool auto_create;
     char *proxied_engine_path;
     char *admin_user;
+    char *default_bucket_name;
     proxied_engine_handle_t default_engine;
     pthread_mutex_t engines_mutex;
     genhash_t *engines;
@@ -343,9 +344,23 @@ static void handle_connect(const void *cookie,
                            const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
-    // Assign the default bucket (if there is one).
-    proxied_engine_handle_t *peh = e->default_engine.pe.v0 ?
-        &e->default_engine : NULL;
+    proxied_engine_handle_t *peh = NULL;
+    if (e->default_bucket_name != NULL) {
+        // Assign a default named bucket (if there is one).
+        if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+            peh = genhash_find(e->engines, e->default_bucket_name,
+                               strlen(e->default_bucket_name));
+            pthread_mutex_unlock(&e->engines_mutex);
+        }
+        if (!peh && e->auto_create) {
+            // XXX:  Need default config.
+            create_bucket(e, e->default_bucket_name, "", &peh);
+        }
+    } else {
+        // Assign the default bucket (if there is one).
+        peh = e->default_engine.pe.v0 ? &e->default_engine : NULL;
+    }
+
     retain_handle(peh);
     e->server->store_engine_specific(cookie, peh);
 }
@@ -368,7 +383,6 @@ static void handle_auth(const void *cookie,
         return;
     }
     if (!peh && e->auto_create) {
-        // XXX:  Need default config
         create_bucket(e, auth_data->username, auth_data->config ? auth_data->config : "", &peh);
     }
     retain_handle(peh);
@@ -453,6 +467,8 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         se->proxied_engine_path = NULL;
         free(se->admin_user);
         se->admin_user = NULL;
+        free(se->default_bucket_name);
+        se->default_bucket_name = NULL;
         pthread_mutex_destroy(&se->engines_mutex);
         se->initialized = false;
     }
@@ -663,6 +679,9 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
             { .key = "default",
               .datatype = DT_BOOL,
               .value.dt_bool = &me->has_default },
+            { .key = "default_bucket_name",
+              .datatype = DT_STRING,
+              .value.dt_string = &me->default_bucket_name },
             { .key = "auto_create",
               .datatype = DT_BOOL,
               .value.dt_bool = &me->auto_create },
