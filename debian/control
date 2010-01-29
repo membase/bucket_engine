@@ -1,0 +1,12 @@
+Source: memcached-bucket-engine
+Section: web
+Priority: extra
+Maintainer: Sean Lynch <sean@northscale.com>
+Build-Depends: debhelper (>= 7), autotools-dev
+Standards-Version: 3.8.1
+
+Package: memcached-bucket-engine
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: NorthScale bucket engine for memcached
+ NorthScale bucket engine for memcached

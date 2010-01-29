@@ -1,0 +1,11 @@
+memcached-bucket-engine (0.1+git14.g599b99b) jaunty; urgency=low
+
+  * Pull in latest upstream
+
+ -- Sean Lynch <sean@domU-12-31-39-00-17-11.compute-1.internal>  Thu, 28 Jan 2010 21:26:37 +0000
+
+memcached-bucket-engine (0.1-1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Sean Lynch <sean@northscale.com>  Wed, 30 Dec 2009 14:51:19 -0800

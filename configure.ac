@@ -113,15 +113,12 @@ AC_CACHE_CHECK([for memcached directory], ac_cv_memcached_dir, [
 ])
 if test $ac_cv_memcached_dir != "(system)"; then
   if test -d "$ac_cv_memcached_dir/lib" ; then
-    LIBS="-lmcd_util $LIBS"
     LDFLAGS="-L$ac_cv_memcached_dir/lib $LDFLAGS"
     mc_libdir="$ac_cv_memcached_dir/lib"
   elif test -d "$ac_cv_memcached_dir/.libs" ; then
-    LIBS="-lmcd_util $LIBS"
     LDFLAGS="-L$ac_cv_memcached_dir/.libs $LDFLAGS"
     mc_libdir="$ac_cv_memcached_dir/.libs"
   else
-    LIBS="-lmcd_util $LIBS"
     LDFLAGS="-L$ac_cv_memcached_dir $LDFLAGS"
     mc_libdir="$ac_cv_memcached_dir"
   fi
@@ -131,6 +128,7 @@ if test $ac_cv_memcached_dir != "(system)"; then
     CPPFLAGS="-I$ac_cv_memcached_dir $CPPFLAGS"
   fi
 fi
+LIBS="-lmcd_util $LIBS"
 
 dnl ----------------------------------------------------------------------------
 
