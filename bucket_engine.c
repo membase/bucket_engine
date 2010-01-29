@@ -511,6 +511,7 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
 
 struct bucket_list {
     char *name;
+    int namelen;
     proxied_engine_handle_t *peh;
     struct bucket_list *next;
 };
@@ -520,9 +521,8 @@ static void add_engine(const void *key, size_t nkey,
                   void *arg) {
     struct bucket_list **blist_ptr = (struct bucket_list **)arg;
     struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
-    assert(n);
-    n->name = strdup(key);
-    assert(n->name);
+    n->name = (char*)key;
+    n->namelen = nkey;
     n->peh = (proxied_engine_handle_t*) val;
     assert(n->peh);
     retain_handle(n->peh);
@@ -543,7 +543,6 @@ static bool list_buckets(struct bucket_engine *e, struct bucket_list **blist) {
 static void bucket_list_free(struct bucket_list *blist) {
     struct bucket_list *p = blist;
     while (p) {
-        free(p->name);
         release_handle(p->peh);
         struct bucket_list *tmp = p->next;
         free(p);
@@ -773,7 +772,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     int len = 0, n = 0;
     struct bucket_list *p = blist;
     while (p) {
-        len += strlen(p->name);
+        len += p->namelen;
         n++;
         p = p->next;
     }
@@ -783,7 +782,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     assert(blist_txt);
     p = blist;
     while (p) {
-        strcat(blist_txt, p->name);
+        strncat(blist_txt, p->name, p->namelen);
         if (p->next) {
             strcat(blist_txt, " ");
         }
