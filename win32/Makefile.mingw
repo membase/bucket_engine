@@ -17,7 +17,7 @@ INCLUDE=/include
 
 CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
  -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
- -I${INCLUDE} -Iwin32 -I/usr/local/include -I${MEMCACHED_HEADERS} \
+ -I${INCLUDE} -I/include -Iwin32 -I/usr/local/include -I${MEMCACHED_HEADERS} \
  -DHAVE_CONFIG_H
 
 BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o ${MEMCACHED}/.libs/genhash.o
