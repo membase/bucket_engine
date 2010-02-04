@@ -63,7 +63,9 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const rel_time_t exptime);
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
-                                            item* item);
+                                            const void* key,
+                                            const size_t nkey,
+                                            uint64_t cas);
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item);
@@ -493,10 +495,12 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
-                                            item* item) {
+                                            const void* key,
+                                            const size_t nkey,
+                                            uint64_t cas) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->remove(e->v0, cookie, item);
+        return e->v1->remove(e->v0, cookie, key, nkey, cas);
     } else {
         return ENGINE_KEY_ENOENT;
     }

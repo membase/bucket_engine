@@ -355,7 +355,7 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
 
     assert_item_eq(h, h1, item, fetched_item);
 
-    rv = h1->remove(h, cookie, fetched_item);
+    rv = h1->remove(h, cookie, "somekey", strlen("somekey"), 0);
     assert(rv == ENGINE_SUCCESS);
 
     return SUCCESS;
@@ -374,7 +374,7 @@ static enum test_result test_default_unlinked_remove(ENGINE_HANDLE *h,
                       key, strlen(key)-1,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
-    rv = h1->remove(h, cookie, item);
+    rv = h1->remove(h, cookie, key, strlen(key)-1, 0);
     assert(rv == ENGINE_KEY_ENOENT);
 
     return SUCCESS;
@@ -401,7 +401,7 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_KEY_ENOENT);
 
-    rv = h1->remove(h, cookie, item);
+    rv = h1->remove(h, cookie, key, strlen(key), 0);
     assert(rv == ENGINE_KEY_ENOENT);
 
     rv = h1->arithmetic(h, cookie, key, strlen(key),
@@ -472,7 +472,7 @@ static enum test_result test_two_engines_del(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     // Delete an item
-    rv = h1->remove(h, cookie1, item1);
+    rv = h1->remove(h, cookie1, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
     rv = h1->get(h, cookie1, &fetched_item1, key, strlen(key));
