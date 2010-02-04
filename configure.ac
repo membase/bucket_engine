@@ -53,7 +53,7 @@ AC_ARG_WITH(memcached,
        [  --with-memcached=PATH     Specify path to memcached installation ],
        [
                 if test "x$withval" != "xno" ; then
-                        trymemcacheddir=$withval
+                        memcacheddir=$withval
                 fi
        ]
 )
@@ -61,76 +61,16 @@ AC_ARG_WITH(memcached,
 dnl ----------------------------------------------------------------------------
 
 AC_CACHE_CHECK([for memcached directory], ac_cv_memcached_dir, [
-  saved_LIBS="$LIBS"
-  saved_LDFLAGS="$LDFLAGS"
-  saved_CPPFLAGS="$CPPFLAGS"
-  mc_found=no
-  for mcdir in $trymemcacheddir "" $prefix /usr/local ; do
-    # Skip the directory if it isn't there.
-    if test ! -z "$mcdir" -a ! -d "$mcdir" ; then
-       continue;
-    fi
-    if test ! -z "$mcdir" ; then
-      if test -d "$mcdir/include" ; then
-        CPPFLAGS="-I$mcdir/include $CPPFLAGS"
-      else
-        CPPFLAGS="-I$mcdir $CPPFLAGS"
-      fi
-      if test -d "$mcdir/lib" ; then
-        LDFLAGS="-L$mcdir/lib $LDFLAGS"
-        LIBS="-lmcd_util $LIBS"
-      elif test -d "$mcdir/.libs" ; then
-        LDFLAGS="-L$mcdir/.libs $LDFLAGS"
-        LIBS="-lmcd_util $LIBS"
-      else
-        LDFLAGS="-L$mcdir $LDFLAGS"
-        LIBS="-lmcd_util $LIBS"
-      fi
-    fi
-    # Can I compile and link it?
-    AC_TRY_LINK([#include <memcached/engine.h>], [ ],
-       [ memcached_linked=yes ], [ memcached_linked=no ])
-    if test $memcached_linked = yes; then
-       if test ! -z "$mcdir" ; then
-         ac_cv_memcached_dir=$mcdir
-       else
-         ac_cv_memcached_dir="(system)"
-       fi
-       mc_found=yes
-       break
-    fi
-  done
-  LIBS="$saved_LIBS"
-  LDFFLAGS="$saved_LDFLAGS"
-  CPPFLAGS="$saved_CPPFLAGS"
-  if test $mc_found = no ; then
-    AC_MSG_ERROR([memcached is required.
+  if ! test -f "$memcacheddir/libmcd_util.la"
+  then
+    AC_ERROR([Could not find $memcacheddir/libmcd_util.la])
+  fi
+  ac_cv_memcached_dir=$memcacheddir
+])
 
-      If it's already installed, specify its path using --with-memcached=/dir/
-      You can also specify a directory in which you've built memcached.
-])
-  fi
-])
-if test $ac_cv_memcached_dir != "(system)"; then
-  if test -d "$ac_cv_memcached_dir/lib" ; then
-    LIBS="-lmcd_util $LIBS"
-    LDFLAGS="-L$ac_cv_memcached_dir/lib $LDFLAGS"
-    mc_libdir="$ac_cv_memcached_dir/lib"
-  elif test -d "$ac_cv_memcached_dir/.libs" ; then
-    LIBS="-lmcd_util $LIBS"
-    LDFLAGS="-L$ac_cv_memcached_dir/.libs $LDFLAGS"
-    mc_libdir="$ac_cv_memcached_dir/.libs"
-  else
-    LIBS="-lmcd_util $LIBS"
-    LDFLAGS="-L$ac_cv_memcached_dir $LDFLAGS"
-    mc_libdir="$ac_cv_memcached_dir"
-  fi
-  if test -d "$ac_cv_memcached_dir/include" ; then
-    CPPFLAGS="-I$ac_cv_memcached_dir/include $CPPFLAGS"
-  else
-    CPPFLAGS="-I$ac_cv_memcached_dir $CPPFLAGS"
-  fi
-fi
+MEMCACHED_DIR=$ac_cv_memcached_dir
+AC_SUBST(MEMCACHED_DIR)
+
 
 dnl ----------------------------------------------------------------------------
 

@@ -2,8 +2,8 @@ TMP_DIR=./tmp
 
 TMP_VER=$(TMP_DIR)/version_num.tmp
 
-common_CFLAGS=@PROFILER_FLAGS@
-common_LDFLAGS=-g @PROFILER_LDFLAGS@
+common_CFLAGS=@PROFILER_FLAGS@ -I@MEMCACHED_DIR@/include
+common_LDFLAGS=-g @PROFILER_LDFLAGS@ @MEMCACHED_DIR@/libmcd_util.la
 
 lib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h
@@ -17,7 +17,7 @@ mock_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere $(common_LDFLAGS)
 
 noinst_PROGRAMS = testapp
 testapp_SOURCES = testapp.c
-testapp_DEPENDENCIES = mock_engine.la 
+testapp_DEPENDENCIES = mock_engine.la
 testapp_CFLAGS = $(common_CFLAGS)
 testapp_LDFLAGS = $(common_LDFLAGS)
 
