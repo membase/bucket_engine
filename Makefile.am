@@ -23,6 +23,8 @@ testapp_LDFLAGS = $(common_LDFLAGS)
 
 pkgdata_SCRIPTS = management/create_bucket.py  management/delete_bucket.py  management/list_buckets.py  management/mc_bin_client.py  management/memcacheConstants.py
 
+EXTRA_DIST = $(pkgdata_SCRIPTS)
+
 test: testapp
 	./testapp
 
