@@ -826,7 +826,7 @@ static bool authorized(ENGINE_HANDLE* handle,
     struct bucket_engine *e = (struct bucket_engine*)handle;
     bool rv = false;
     if (e->admin_user) {
-        auth_data_t data;
+        auth_data_t data = {.username = 0, .config = 0};
         e->server->get_auth_data(cookie, &data);
         if (data.username) {
             rv = strcmp(data.username, e->admin_user) == 0;
