@@ -1,4 +1,5 @@
 AC_PREREQ(2.52)
+m4_include([m4/c99-backport.m4])
 AC_INIT(bucket_engine, 0.1, dustin@spy.net)
 AC_CANONICAL_SYSTEM
 AC_CONFIG_SRCDIR(bucket_engine.c)
