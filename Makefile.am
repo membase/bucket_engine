@@ -37,5 +37,5 @@ bdist: version
 	rm -rf $(TMP_DIR)/bucket_engine
 	mkdir $(TMP_DIR)/bucket_engine
 	cp .libs/bucket_engine.so $(TMP_DIR)/bucket_engine
-	tar --directory $(TMP_DIR) -czf bucket_engine_`cat $(TMP_VER)`-`uname -s`.`uname -m`.tar.gz bucket_engine
+	(cd $(TMP_DIR); tar cf - bucket_engine) | gzip -9 > bucket_engine_`cat $(TMP_VER)`-`uname -s`.`uname -m`.tar.gz
 	echo created bucket_engine_`cat $(TMP_VER)`-`uname -s`.`uname -m`.tar.gz
