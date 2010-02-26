@@ -132,6 +132,15 @@ struct bucket_engine bucket_engine = {
     .initialized = false,
 };
 
+/* Internal utility functions */
+
+static const char *get_default_bucket_config() {
+    const char *config = getenv("MEMCACHED_DEFAULT_BUCKET_CONFIG");
+    return config != NULL ? config : "";
+}
+
+/* Engine API functions */
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -354,7 +363,8 @@ static void handle_connect(const void *cookie,
         }
         if (!peh && e->auto_create) {
             // XXX:  Need default config.
-            create_bucket(e, e->default_bucket_name, "", &peh);
+            create_bucket(e, e->default_bucket_name,
+                          get_default_bucket_config(), &peh);
         }
     } else {
         // Assign the default bucket (if there is one).
