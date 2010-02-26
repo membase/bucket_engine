@@ -718,7 +718,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     char configz[bodylen + 1];
     memcpy(configz, ((void*)request) + sizeof(breq->message.header)
            + ntohs(breq->message.header.request.keylen), bodylen);
-    configz[ntohs(breq->message.header.request.keylen)] = 0x00;
+    configz[bodylen] = 0x00;
 
     proxied_engine_handle_t *peh = NULL;
     ENGINE_ERROR_CODE ret = create_bucket(e, keyz, configz, &peh);
