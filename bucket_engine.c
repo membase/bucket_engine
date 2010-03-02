@@ -50,6 +50,9 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   ENGINE_HANDLE **handle);
 
 static const char* bucket_get_info(ENGINE_HANDLE* handle);
+
+static const char *get_default_bucket_config(void);
+
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str);
 static void bucket_destroy(ENGINE_HANDLE* handle);
