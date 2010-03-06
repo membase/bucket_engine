@@ -359,7 +359,7 @@ static const char* item_get_key(const item* item)
 
 static char* item_get_data(const item* item)
 {
-    return ((char*)item_get_key(item)) + item->nkey + 1;
+    return ((char*)item_get_key(item)) + item->nkey;
 }
 
 static uint8_t item_get_clsid(const item* item)
