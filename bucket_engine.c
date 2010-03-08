@@ -235,7 +235,7 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
     if (peh != NULL && !peh->valid) {
         release_handle(peh);
         e->server->store_engine_specific(cookie, NULL);
-        peh = NULL;
+        return NULL;
     }
 
     proxied_engine_t *rv = NULL;
@@ -454,6 +454,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     if (se->has_default) {
         memset(&se->default_engine, 0, sizeof(se->default_engine));
         se->default_engine.refcount = 1;
+        se->default_engine.valid = true;
         se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
     }
 
@@ -519,7 +520,6 @@ static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item) {
     proxied_engine_t *e = get_engine(handle, cookie);
-    assert(e);
     if (e) {
         e->v1->release(e->v0, cookie, item);
     }
