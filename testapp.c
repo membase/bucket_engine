@@ -393,20 +393,20 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
     rv = h1->allocate(h, cookie, &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
-    assert(rv == ENGINE_NOT_STORED);
+    assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->remove(h, cookie, item);
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->arithmetic(h, cookie, key, strlen(key),
                         true, true, 1, 1, 0, &cas_out, &result);
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_DISCONNECT);
 
     // no effect, but increases coverage.
     h1->reset_stats(h, cookie);
@@ -426,10 +426,10 @@ static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
     rv = h1->allocate(h, cookie, &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
-    assert(rv == ENGINE_KEY_ENOENT);
+    assert(rv == ENGINE_DISCONNECT);
 
 
     return SUCCESS;
@@ -576,7 +576,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     rv = h1->allocate(h, mk_conn("someuser", NULL), &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
@@ -623,7 +623,7 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
     rv = h1->allocate(h, adm_cookie, &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     void *pkt = create_packet(CREATE_BUCKET, "someuser", "no_alloc");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
@@ -634,7 +634,7 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     return SUCCESS;
 }
@@ -701,7 +701,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     rv = h1->allocate(h, other_cookie, &item,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
-    assert(rv == ENGINE_ENOMEM);
+    assert(rv == ENGINE_DISCONNECT);
 
     return SUCCESS;
 }
@@ -922,7 +922,7 @@ static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
     void *pkt = create_packet(0xfe, "somekey", "someval");
     rv = h1->unknown_command(h, mk_conn("someuser", NULL), pkt, add_response);
     free(pkt);
-    assert(rv == ENGINE_ENOTSUP);
+    assert(rv == ENGINE_DISCONNECT);
 
     return SUCCESS;
 }

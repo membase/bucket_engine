@@ -501,7 +501,7 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
         return e->v1->allocate(e->v0, cookie, item, key,
                                nkey, nbytes, flags, exptime);
     } else {
-        return ENGINE_ENOMEM;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -512,7 +512,7 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
     if (e) {
         return e->v1->remove(e->v0, cookie, item);
     } else {
-        return ENGINE_KEY_ENOENT;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -534,7 +534,7 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
     if (e) {
         return e->v1->get(e->v0, cookie, item, key, nkey);
     } else {
-        return ENGINE_KEY_ENOENT;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -609,7 +609,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     if (e) {
         return e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
     } else {
-        return ENGINE_FAILED;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -633,7 +633,7 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
     if (e) {
         return e->v1->store(e->v0, cookie, item, cas, operation);
     } else {
-        return ENGINE_NOT_STORED;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -654,7 +654,7 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                  increment, create, delta, initial,
                                  exptime, cas, result);
     } else {
-        return ENGINE_KEY_ENOENT;
+        return ENGINE_DISCONNECT;
     }
 }
 
@@ -664,7 +664,7 @@ static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
     if (e) {
       return e->v1->flush(e->v0, cookie, when);
     } else {
-      return ENGINE_SUCCESS;
+      return ENGINE_DISCONNECT;
     }
 }
 
@@ -956,7 +956,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
         if (e) {
             rv = e->v1->unknown_command(handle, cookie, request, response);
         } else {
-            rv = ENGINE_ENOTSUP;
+            rv = ENGINE_DISCONNECT;
         }
     }
     }
