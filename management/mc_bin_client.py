@@ -35,7 +35,17 @@ class MemcachedError(exceptions.Exception):
 class MemcachedClient(object):
     """Simple memcached client."""
 
-    def __init__(self, host='127.0.0.1', port=11211):
+    def __init__(self, host='127.0.0.1', port=None):
+        if port is None:
+            tokens = host.split(':')
+            if len(tokens) == 2:
+                host = tokens[0]
+                port = int(tokens[1])
+            elif len(tokens) == 1:
+                port == 11211
+            else:
+                raise ValueError, "Too many colons in host arg"
+
         self.s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.connect_ex((host, port))
         self.r=random.Random()
