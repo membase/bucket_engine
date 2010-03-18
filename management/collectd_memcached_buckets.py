@@ -3,7 +3,7 @@ import sys, time, re
 sys.path = ['/usr/local/lib/python2.6/site-packages'] + sys.path
 
 import mc_bin_client
-import pycollectd
+import collectd
 
 """
 memcached_command       value:COUNTER:0:U
@@ -66,7 +66,7 @@ def get_bucket_stats(mc):
 
 
 def put_values(c, hostname, bucket, now, values):
-    identifier = pycollectd.Identifier(hostname, 'memcached_bucket', None, 'memcached_bucket', bucket)
+    identifier = collectd.Identifier(hostname, 'memcached_bucket', None, 'memcached_bucket', bucket)
     c.putval(identifier, now, values)
 
 
@@ -95,7 +95,7 @@ def main():
 
     hostname = options.hostname or get_hostname_from_collectd_config('/etc/collectd/collectd.conf') 
     assert hostname
-    c = pycollectd.Exec()
+    c = collectd.Exec()
     l = list_buckets(mc)
     now = time.time()
     totals = None
