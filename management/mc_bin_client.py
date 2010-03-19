@@ -42,7 +42,7 @@ class MemcachedClient(object):
                 host = tokens[0]
                 port = int(tokens[1])
             elif len(tokens) == 1:
-                port == 11211
+                port = 11211
             else:
                 raise ValueError, "Too many colons in host arg"
 
