@@ -59,6 +59,8 @@ def get_bucket_stats(mc):
            'bytes_read',
            'bytes_written',
            'evictions',
+           'curr_items',
+           'bytes',
           ]
 
     stats = mc.stats()
@@ -73,12 +75,15 @@ def put_values(c, hostname, bucket, now, values):
 def list_buckets(mc):
     # return mc.bucket_list()
     buckets = []
-    for line in open('/var/db/memcached.pw'):
+    for line in open('/opt/northscale/var/db/memcached.pw'):
         buckets.append(line.split()[0])
 
     return buckets
 
 def main():
+    import signal
+    signal.alarm(9) # Don't run for longer than 9 seconds
+
     from optparse import OptionParser
 
     parser = OptionParser()
