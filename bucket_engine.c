@@ -605,12 +605,19 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const char* stat_key,
                                           int nkey,
                                           ADD_STAT add_stat) {
+    ENGINE_ERROR_CODE rc = ENGINE_DISCONNECT;
+    char statval[20];
     proxied_engine_t *e = get_engine(handle, cookie);
+
     if (e) {
-        return e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
-    } else {
-        return ENGINE_DISCONNECT;
+        rc = e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
+        struct bucket_engine *be = (struct bucket_engine*)handle;
+        proxied_engine_handle_t *peh = be->server->get_engine_specific(cookie);
+        snprintf(statval, 20, "%d", peh->refcount - 1);
+        add_stat("bucket_conns", strlen("bucket_conns"), statval,
+                 strlen(statval), cookie);
     }
+    return rc;
 }
 
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
