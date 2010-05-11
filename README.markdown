@@ -75,5 +75,4 @@ who don't have buckets created for them when `auto_create` is disabled.
 The contained engine is configured using the `engine` parameter (see
 the example above).
 
-
 [management]: http://github.com/northscale/bucket_engine/tree/master/management/
