@@ -43,13 +43,19 @@ struct bucket_engine {
     CREATE_INSTANCE new_engine;
     GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 *server;
+
+    union {
+      engine_info engine_info;
+      char buffer[sizeof(engine_info) +
+                  (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
+    } info;
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
 
-static const char* bucket_get_info(ENGINE_HANDLE* handle);
+static const engine_info* bucket_get_info(ENGINE_HANDLE* handle);
 
 static const char *get_default_bucket_config(void);
 
@@ -66,7 +72,9 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const rel_time_t exptime);
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
-                                            item* item);
+                                            const void* key,
+                                            const size_t nkey,
+                                            uint64_t cas);
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item);
@@ -130,9 +138,17 @@ struct bucket_engine bucket_engine = {
         .store = bucket_store,
         .arithmetic = bucket_arithmetic,
         .flush = bucket_flush,
-        .unknown_command = bucket_unknown_command,
+        .unknown_command = bucket_unknown_command
     },
     .initialized = false,
+    .info.engine_info = {
+        .description = "Bucket engine v0.2",
+        .num_features = 0,
+        .features = {
+            [0].feature = 0,
+            [0].description = NULL
+        }
+    },
 };
 
 /* Internal utility functions */
@@ -153,7 +169,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
 
     *handle = (ENGINE_HANDLE*)&bucket_engine;
     bucket_engine.get_server_api = gsapi;
-    bucket_engine.server = gsapi(1);
+    bucket_engine.server = gsapi();
     return ENGINE_SUCCESS;
 }
 
@@ -163,7 +179,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
             peh->pe.v1->destroy(peh->pe.v0);
-            bucket_engine.server->release_stats(peh->stats);
+            bucket_engine.server->stat->release_stats(peh->stats);
             free(peh);
         }
     }
@@ -197,7 +213,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
     assert(peh);
-    peh->stats = e->server->new_stats();
+    peh->stats = e->server->stat->new_stats();
     assert(peh->stats);
     peh->refcount = 1;
     peh->valid = true;
@@ -231,10 +247,10 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
-    proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
+    proxied_engine_handle_t *peh = e->server->core->get_engine_specific(cookie);
     if (peh != NULL && !peh->valid) {
         release_handle(peh);
-        e->server->store_engine_specific(cookie, NULL);
+        e->server->core->store_engine_specific(cookie, NULL);
         return NULL;
     }
 
@@ -252,8 +268,8 @@ static inline struct bucket_engine* get_handle(ENGINE_HANDLE* handle) {
     return (struct bucket_engine*)handle;
 }
 
-static const char* bucket_get_info(ENGINE_HANDLE* handle) {
-    return "Bucket engine v0.1";
+static const engine_info* bucket_get_info(ENGINE_HANDLE* handle) {
+    return &get_handle(handle)->info.engine_info;
 }
 
 static int my_hash_eq(const void *k1, size_t nkey1,
@@ -347,7 +363,7 @@ static void handle_disconnect(const void *cookie,
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
     // Free up the engine we were using.
-    release_handle(e->server->get_engine_specific(cookie));
+    release_handle(e->server->core->get_engine_specific(cookie));
 }
 
 static void handle_connect(const void *cookie,
@@ -375,7 +391,7 @@ static void handle_connect(const void *cookie,
     }
 
     retain_handle(peh);
-    e->server->store_engine_specific(cookie, peh);
+    e->server->core->store_engine_specific(cookie, peh);
 }
 
 static void handle_auth(const void *cookie,
@@ -385,7 +401,7 @@ static void handle_auth(const void *cookie,
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
     // Free up the default engine (or user engine if re-auth).
-    release_handle(e->server->get_engine_specific(cookie));
+    release_handle(e->server->core->get_engine_specific(cookie));
 
     const auth_data_t *auth_data = (const auth_data_t*)event_data;
     proxied_engine_handle_t *peh = NULL;
@@ -399,7 +415,7 @@ static void handle_auth(const void *cookie,
         create_bucket(e, auth_data->username, auth_data->config ? auth_data->config : "", &peh);
     }
     retain_handle(peh);
-    e->server->store_engine_specific(cookie, peh);
+    e->server->core->store_engine_specific(cookie, peh);
 }
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
@@ -439,11 +455,8 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_FAILED;
     }
     ENGINE_HANDLE_V1 *hv1 = (ENGINE_HANDLE_V1*)eh;
-    bucket_engine.engine.item_get_cas = hv1->item_get_cas;
     bucket_engine.engine.item_set_cas = hv1->item_set_cas;
-    bucket_engine.engine.item_get_key = hv1->item_get_key;
-    bucket_engine.engine.item_get_data = hv1->item_get_data;
-    bucket_engine.engine.item_get_clsid = hv1->item_get_clsid;
+    bucket_engine.engine.get_item_info = hv1->get_item_info;
     // Shut it back down.
     ENGINE_HANDLE_V1 *ehv1 = (ENGINE_HANDLE_V1*)eh;
     ehv1->destroy(eh);
@@ -458,9 +471,9 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
     }
 
-    se->server->register_callback(ON_CONNECT, handle_connect, se);
-    se->server->register_callback(ON_AUTH, handle_auth, se);
-    se->server->register_callback(ON_DISCONNECT, handle_disconnect, se);
+    se->server->callback->register_callback(ON_CONNECT, handle_connect, se);
+    se->server->callback->register_callback(ON_AUTH, handle_auth, se);
+    se->server->callback->register_callback(ON_DISCONNECT, handle_disconnect, se);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
@@ -507,10 +520,12 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
-                                            item* item) {
+                                            const void* key,
+                                            const size_t nkey,
+                                            uint64_t cas) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->remove(e->v0, cookie, item);
+        return e->v1->remove(e->v0, cookie, key, nkey, cas);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -612,7 +627,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     if (e) {
         rc = e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
         struct bucket_engine *be = (struct bucket_engine*)handle;
-        proxied_engine_handle_t *peh = be->server->get_engine_specific(cookie);
+        proxied_engine_handle_t *peh = be->server->core->get_engine_specific(cookie);
         snprintf(statval, 20, "%d", peh->refcount - 1);
         add_stat("bucket_conns", strlen("bucket_conns"), statval,
                  strlen(statval), cookie);
@@ -623,7 +638,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie) {
     struct bucket_engine *e = (struct bucket_engine*)handle;
-    proxied_engine_handle_t *peh = e->server->get_engine_specific(cookie);
+    proxied_engine_handle_t *peh = e->server->core->get_engine_specific(cookie);
     if (peh != NULL && peh->valid) {
         return peh->stats;
     } else {
@@ -710,7 +725,7 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
             { .key = NULL}
         };
 
-        ret = me->server->parse_config(cfg_str, items, stderr);
+        ret = me->server->core->parse_config(cfg_str, items, stderr);
     }
 
     return ret;
@@ -847,7 +862,7 @@ static bool authorized(ENGINE_HANDLE* handle,
     bool rv = false;
     if (e->admin_user) {
         auth_data_t data = {.username = 0, .config = 0};
-        e->server->get_auth_data(cookie, &data);
+        e->server->core->get_auth_data(cookie, &data);
         if (data.username) {
             rv = strcmp(data.username, e->admin_user) == 0;
         }
@@ -908,9 +923,9 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
         // Free up the currently held engine.
-        release_handle(e->server->get_engine_specific(cookie));
+        release_handle(e->server->core->get_engine_specific(cookie));
         retain_handle(proxied);
-        e->server->store_engine_specific(cookie, proxied);
+        e->server->core->store_engine_specific(cookie, proxied);
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Engine not found";

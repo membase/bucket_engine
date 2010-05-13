@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <arpa/inet.h>
 #include <assert.h>
@@ -12,6 +14,7 @@
 #include "bucket_engine.h"
 
 #include "memcached/engine.h"
+#include "memcached/util.h"
 
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin" \
     ";auto_create=false"
@@ -151,24 +154,46 @@ static void destroy_stats(void *s) {
  * @return pointer to a structure containing the interface. The client should
  *         know the layout and perform the proper casts.
  */
-static void *get_server_api(int interface)
+static SERVER_HANDLE_V1 *get_server_api(void)
 {
-    static struct server_interface_v1 server_api = {
-        .register_callback = register_callback,
+    static SERVER_CORE_API core_api = {
         .get_auth_data = get_auth_data,
-        .server_version = get_server_version,
-        .get_engine_specific = get_engine_specific,
         .store_engine_specific = store_engine_specific,
-        .new_stats = create_stats,
-        .release_stats = destroy_stats,
-        .parse_config = parse_config,
+        .get_engine_specific = get_engine_specific,
+        // .get_socket_fd = get_socket_fd,
+        .server_version = get_server_version,
+        // .hash = hash,
+        // .realtime = realtime,
+        // .notify_io_complete = notify_io_complete,
+        // .get_current_time = get_current_time,
+        .parse_config = parse_config
     };
 
-    if (interface != 1) {
-        return NULL;
-    }
+    static SERVER_STAT_API server_stat_api = {
+        .new_stats = create_stats,
+        .release_stats = destroy_stats
+        // .evicting = count_eviction
+    };
 
-    return &server_api;
+    static SERVER_EXTENSION_API extension_api = { 0 };
+        // .register_extension = register_extension,
+        // .unregister_extension = unregister_extension,
+        // .get_extension = get_extension
+
+    static SERVER_CALLBACK_API callback_api = {
+        .register_callback = register_callback,
+        // .perform_callbacks = perform_callbacks,
+    };
+
+    static SERVER_HANDLE_V1 rv = {
+        .interface = 1,
+        .core = &core_api,
+        .stat = &server_stat_api,
+        .extension = &extension_api,
+        .callback = &callback_api
+    };
+
+    return &rv;
 }
 
 bool add_response(const void *key, uint16_t keylen,
@@ -199,6 +224,7 @@ bool add_response(const void *key, uint16_t keylen,
 }
 
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
+
     ENGINE_HANDLE *engine = NULL;
     /* Hack to remove the warning from C99 */
     union my_hack {
@@ -257,18 +283,22 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
 // ----------------------------------------------------------------------
 
 static bool item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
-                    item *i1, item *i2) {
+                    item *item1, item *item2) {
+    item_info i1 = { .nvalue = 1 };
+    item_info i2 = { .nvalue = 1 };
 
-    return i1->exptime == i2->exptime
-        && i1->flags == i2->flags
-        && i1->nkey == i2->nkey
-        && i1->nbytes == i2->nbytes
-        && memcmp(h1->item_get_key(i1),
-                  h1->item_get_key(i2),
-                  i1->nkey) == 0
-        && memcmp(h1->item_get_data(i1),
-                  h1->item_get_data(i2),
-                  i1->nbytes) == 0;
+    if (!h1->get_item_info(h, item1, &i1) ||
+        !h1->get_item_info(h, item2, &i2))
+        return false;
+
+    return i1.exptime == i2.exptime
+        && i1.flags == i2.flags
+        && i1.nkey == i2.nkey
+        && i1.nbytes == i2.nbytes
+        && i1.nvalue == i2.nvalue
+        && memcmp(i1.key, i2.key, i1.nkey) == 0
+        && memcmp(i1.value[0].iov_base, i2.value[0].iov_base,
+                  i1.nbytes) == 0;
 }
 
 static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
@@ -291,7 +321,10 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    memcpy(h1->item_get_data(item), value, strlen(value));
+    item_info info = { .nvalue = 1 };
+    h1->get_item_info(h, item, &info);
+
+    memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
@@ -315,7 +348,10 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    memcpy(h1->item_get_data(item), value, strlen(value));
+    item_info info = { .nvalue = 1 };
+    h1->get_item_info(h, item, &info);
+
+    memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
@@ -345,7 +381,10 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    memcpy(h1->item_get_data(item), value, strlen(value));
+    item_info info = { .nvalue = 1 };
+    h1->get_item_info(h, item, &info);
+
+    memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
     rv = h1->store(h, cookie, item, 0, OPERATION_SET);
     assert(rv == ENGINE_SUCCESS);
@@ -355,7 +394,9 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
 
     assert_item_eq(h, h1, item, fetched_item);
 
-    rv = h1->remove(h, cookie, fetched_item);
+    h1->get_item_info(h, fetched_item, &info);
+
+    rv = h1->remove(h, cookie, info.key, info.nkey, info.cas);
     assert(rv == ENGINE_SUCCESS);
 
     return SUCCESS;
@@ -374,7 +415,7 @@ static enum test_result test_default_unlinked_remove(ENGINE_HANDLE *h,
                       key, strlen(key)-1,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
-    rv = h1->remove(h, cookie, item);
+    rv = h1->remove(h, cookie, key, strlen(key), 0);
     assert(rv == ENGINE_KEY_ENOENT);
 
     return SUCCESS;
@@ -401,7 +442,7 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key));
     assert(rv == ENGINE_DISCONNECT);
 
-    rv = h1->remove(h, cookie, item);
+    rv = h1->remove(h, cookie, key, strlen(key), 0);
     assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->arithmetic(h, cookie, key, strlen(key),
@@ -472,7 +513,7 @@ static enum test_result test_two_engines_del(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     // Delete an item
-    rv = h1->remove(h, cookie1, item1);
+    rv = h1->remove(h, cookie1, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
     rv = h1->get(h, cookie1, &fetched_item1, key, strlen(key));
@@ -543,8 +584,8 @@ static enum test_result test_arith(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 }
 
 static enum test_result test_get_info(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
-    const char *info = h1->get_info(h);
-    return strncmp(info, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
+    const engine_info* info = h1->get_info(h);
+    return strncmp(info->description, "Bucket engine", 13) == 0 ? SUCCESS : FAIL;
 }
 
 static void* create_packet(uint8_t opcode, const char *key, const char *val) {
@@ -1116,4 +1157,195 @@ int main(int argc, char **argv) {
     }
 
     return rc;
+}
+
+static int read_config_file(const char *fname, struct config_item items[],
+                            FILE *error);
+
+/**
+ * Copy a string and trim of leading and trailing white space characters.
+ * Allow the user to escape out the stop character by putting a backslash before
+ * the character.
+ * @param dest where to store the result
+ * @param size size of the result buffer
+ * @param src where to copy data from
+ * @param end the last character parsed is returned here
+ * @param stop the character to stop copying.
+ * @return 0 if success, -1 otherwise
+ */
+static int trim_copy(char *dest, size_t size, const char *src,
+                     const char **end, char stop) {
+   while (isspace(*src)) {
+      ++src;
+   }
+   char *space = NULL;
+   size_t n = 0;
+   bool escape = false;
+   int ret = 0;
+
+   do {
+      if ((*dest = *src) == '\\') {
+         escape = true;
+      } else {
+         if (!escape) {
+            if (space == NULL && isspace(*src)) {
+               space = dest;
+            }
+         }
+         escape = false;
+         ++dest;
+      }
+      ++n;
+      ++src;
+
+   } while (!(n == size || ((*src == stop) && !escape) || *src == '\0'));
+   *end = src;
+
+   if (space) {
+      *space = '\0';
+   } else {
+      if (n == size) {
+         --dest;
+         ret = -1;
+      }
+      *dest = '\0';
+   }
+
+   return ret;
+}
+
+
+int parse_config(const char *str, struct config_item *items, FILE *error) {
+   int ret = 0;
+   const char *ptr = str;
+
+   while (*ptr != '\0') {
+      while (isspace(*ptr)) {
+         ++ptr;
+      }
+      if (*ptr == '\0') {
+         /* end of parameters */
+         return 0;
+      }
+
+      const char *end;
+      char key[80];
+      if (trim_copy(key, sizeof(key), ptr, &end, '=') == -1) {
+         fprintf(error, "ERROR: Invalid key, starting at: <%s>\n", ptr);
+         return -1;
+      }
+
+      ptr = end + 1;
+      char value[80];
+      if (trim_copy(value, sizeof(value), ptr, &end, ';') == -1) {
+         fprintf(error, "ERROR: Invalid value, starting at: <%s>\n", ptr);
+         return -1;
+      }
+      if (*end == ';') {
+         ptr = end + 1;
+      } else {
+         ptr = end;
+      }
+
+      int ii = 0;
+      while (items[ii].key != NULL) {
+         if (strcmp(key, items[ii].key) == 0) {
+            if (items[ii].found) {
+               fprintf(error, "WARNING: Found duplicate entry for \"%s\"\n",
+                       items[ii].key);
+            }
+
+            switch (items[ii].datatype) {
+            case DT_SIZE:
+               {
+                  uint64_t val;
+                  if (safe_strtoull(value, &val)) {
+                     *items[ii].value.dt_size = (size_t)val;
+                     items[ii].found = true;
+                  } else {
+                     ret = -1;
+                  }
+               }
+               break;
+            case DT_FLOAT:
+               {
+                  float val;
+                  if (safe_strtof(value, &val)) {
+                     *items[ii].value.dt_float = val;
+                     items[ii].found = true;
+                  } else {
+                     ret = -1;
+                  }
+               }
+               break;
+            case DT_STRING:
+               *items[ii].value.dt_string = strdup(value);
+               items[ii].found = true;
+               break;
+            case DT_BOOL:
+               if (strcasecmp(value, "true") == 0 || strcasecmp(value, "on") == 0) {
+                  *items[ii].value.dt_bool = true;
+                  items[ii].found = true;
+               } else if (strcasecmp(value, "false") == 0 || strcasecmp(value, "off") == 0) {
+                  *items[ii].value.dt_bool = false;
+                  items[ii].found = true;
+               } else {
+                  ret = -1;
+               }
+               break;
+            case DT_CONFIGFILE:
+               {
+                  int r = read_config_file(value, items, error);
+                  if (r != 0) {
+                     ret = r;
+                  }
+               }
+               break;
+            default:
+               /* You need to fix your code!!! */
+               abort();
+            }
+            if (ret == -1) {
+               fprintf(error, "Invalid entry, Key: <%s> Value: <%s>\n",
+                       key, value);
+               return ret;
+            }
+            break;
+         }
+         ++ii;
+      }
+
+      if (items[ii].key == NULL) {
+         fprintf(error, "Unsupported key: <%s>\n", key);
+         ret = 1;
+      }
+   }
+   return ret;
+}
+
+static int read_config_file(const char *fname, struct config_item items[],
+                            FILE *error) {
+   FILE *fp = fopen(fname, "r");
+   if (fp == NULL) {
+      (void)fprintf(error, "Failed to open file: %s\n", fname);
+      return -1;
+   }
+
+   int ret = 0;
+   char line[1024];
+   while (fgets(line, sizeof(line), fp) != NULL && ret != -1L) {
+      if (line[0] == '#') {
+         /* Ignore comment line */
+         continue;
+      }
+
+      int r = parse_config(line, items, error);
+      if (r != 0) {
+         ret = r;
+      }
+   }
+
+   (void)fclose(fp);
+
+   return ret;
 }

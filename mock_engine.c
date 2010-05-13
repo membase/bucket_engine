@@ -26,13 +26,29 @@ struct mock_engine {
     genhash_t *hashtbl;
     struct mock_stats stats;
     uint64_t magic2;
+
+    union {
+      engine_info engine_info;
+      char buffer[sizeof(engine_info) +
+                  (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
+    } info;
 };
+
+typedef struct mock_item {
+    uint64_t cas;
+    rel_time_t exptime; /**< When the item will expire (relative to process
+                             * startup) */
+    uint32_t nbytes; /**< The total size of the data (in bytes) */
+    uint32_t flags; /**< Flags associated with the item (in network byte order)*/
+    uint8_t clsid; /** class id for the object */
+    uint16_t nkey; /**< The total length of the key (in bytes) */
+} mock_item;
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
 
-static const char* mock_get_info(ENGINE_HANDLE* handle);
+static const engine_info* mock_get_info(ENGINE_HANDLE* handle);
 static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
                                          const char* config_str);
 static void mock_destroy(ENGINE_HANDLE* handle);
@@ -46,7 +62,9 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
                                             const rel_time_t exptime);
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
-                                          item* item);
+                                          const void* key,
+                                          const size_t nkey,
+                                          uint64_t cas);
 static void mock_item_release(ENGINE_HANDLE* handle,
                               const void *cookie, item* item);
 static ENGINE_ERROR_CODE mock_get(ENGINE_HANDLE* handle,
@@ -84,9 +102,11 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               ADD_RESPONSE response);
 static char* item_get_data(const item* item);
 static const char* item_get_key(const item* item);
-static void item_set_cas(item* item, uint64_t val);
+static void item_set_cas(ENGINE_HANDLE* handle, item* item, uint64_t val);
 static uint64_t item_get_cas(const item* item);
 static uint8_t item_get_clsid(const item* item);
+
+static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info);
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
@@ -111,14 +131,14 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     h->engine.arithmetic = mock_arithmetic;
     h->engine.flush = mock_flush;
     h->engine.unknown_command = mock_unknown_command;
-    h->engine.item_get_cas = item_get_cas;
     h->engine.item_set_cas = item_set_cas;
-    h->engine.item_get_key = item_get_key;
-    h->engine.item_get_data = item_get_data;
-    h->engine.item_get_clsid = item_get_clsid;
+    h->engine.get_item_info = get_item_info;
 
     h->magic = MAGIC;
     h->magic2 = MAGIC;
+
+    h->info.engine_info.description = "Mock engine v0.2";
+    h->info.engine_info.num_features = 0;
 
     *handle = (ENGINE_HANDLE *)h;
 
@@ -132,8 +152,8 @@ static inline struct mock_engine* get_handle(ENGINE_HANDLE* handle) {
     return e;
 }
 
-static const char* mock_get_info(ENGINE_HANDLE* handle) {
-    return "Mock engine v0.1";
+static const engine_info* mock_get_info(ENGINE_HANDLE* handle) {
+    return &get_handle(handle)->info.engine_info;
 }
 
 static int my_hash_eq(const void *k1, size_t nkey1,
@@ -206,14 +226,14 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
 
     // Only perform allocations if there's a hashtable.
     if (get_ht(handle) != NULL) {
-        size_t to_alloc = sizeof(item) + nkey + nbytes;
+        size_t to_alloc = sizeof(mock_item) + nkey + nbytes;
         *it = calloc(to_alloc, 1);
     } else {
         *it = NULL;
     }
     // If an allocation was requested *and* worked, fill and report success
     if (*it) {
-        item *i = *it;
+        mock_item* i = (mock_item*) *it;
         i->exptime = exptime;
         i->nbytes = nbytes;
         i->flags = flags;
@@ -227,8 +247,10 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
-                                          item* item) {
-    int r = genhash_delete_all(get_ht(handle), item_get_key(item), item->nkey);
+                                          const void* key,
+                                          const size_t nkey,
+                                          uint64_t cas) {
+    int r = genhash_delete_all(get_ht(handle), key, nkey);
     return r > 0 ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 }
 
@@ -262,7 +284,8 @@ static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     item* item,
                                     uint64_t *cas,
                                     ENGINE_STORE_OPERATION operation) {
-    genhash_update(get_ht(handle), item_get_key(item), item->nkey, item, 0);
+    mock_item* it = (mock_item*)item;
+    genhash_update(get_ht(handle), item_get_key(item), it->nkey, item, 0);
     return ENGINE_SUCCESS;
 }
 
@@ -286,7 +309,7 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
         // This is all int stuff, just to make it easy.
         *result = atoi(item_get_data(item_in));
         *result += delta;
-        flags = item_in->flags;
+        flags = ((mock_item*) item_in)->flags;
     } else if (create) {
         // Not found, do the initialization
         *result = initial;
@@ -334,35 +357,49 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
 
 static uint64_t item_get_cas(const item* item)
 {
-    if (item->iflag & ITEM_WITH_CAS) {
-        return *(uint64_t*)(item + 1);
-    }
-    return 0;
+    const mock_item* it = (mock_item*)item;
+    return it->cas;
 }
 
-static void item_set_cas(item* item, uint64_t val)
+static void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
 {
-    if (item->iflag & ITEM_WITH_CAS) {
-        *(uint64_t*)(item + 1) = val;
-    }
+    mock_item* it = (mock_item*)item;
+    it->cas = val;
 }
 
 static const char* item_get_key(const item* item)
 {
-    char *ret = (void*)(item + 1);
-    if (item->iflag & ITEM_WITH_CAS) {
-        ret += sizeof(uint64_t);
-    }
-
+    const mock_item* it = (mock_item*)item;
+    char *ret = (void*)(it + 1);
     return ret;
 }
 
 static char* item_get_data(const item* item)
 {
-    return ((char*)item_get_key(item)) + item->nkey;
+    const mock_item* it = (mock_item*)item;
+    return ((char*)item_get_key(item)) + it->nkey;
 }
 
 static uint8_t item_get_clsid(const item* item)
 {
     return 0;
+}
+
+static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info)
+{
+    mock_item* it = (mock_item*)item;
+    if (item_info->nvalue < 1) {
+        return false;
+    }
+    item_info->cas = item_get_cas(it);
+    item_info->exptime = it->exptime;
+    item_info->nbytes = it->nbytes;
+    item_info->flags = it->flags;
+    item_info->clsid = it->clsid;
+    item_info->nkey = it->nkey;
+    item_info->nvalue = 1;
+    item_info->key = item_get_key(it);
+    item_info->value[0].iov_base = item_get_data(it);
+    item_info->value[0].iov_len = it->nbytes;
+    return true;
 }
