@@ -147,10 +147,9 @@ struct bucket_engine bucket_engine = {
     .initialized = false,
     .info.engine_info = {
         .description = "Bucket engine v0.2",
-        .num_features = 0,
+        .num_features = 1,
         .features = {
-            [0].feature = 0,
-            [0].description = NULL
+            [0].feature = ENGINE_FEATURE_MULTI_TENANCY
         }
     },
 };
@@ -273,7 +272,7 @@ static inline struct bucket_engine* get_handle(ENGINE_HANDLE* handle) {
 }
 
 static const engine_info* bucket_get_info(ENGINE_HANDLE* handle) {
-    return &get_handle(handle)->info.engine_info;
+    return &(get_handle(handle)->info.engine_info);
 }
 
 static int my_hash_eq(const void *k1, size_t nkey1,
