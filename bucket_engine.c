@@ -74,7 +74,8 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
                                             const size_t nkey,
-                                            uint64_t cas);
+                                            uint64_t cas,
+                                            uint16_t vbucket);
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item);
@@ -82,7 +83,8 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** item,
                                     const void* key,
-                                    const int nkey);
+                                    const int nkey,
+                                    uint16_t vbucket);
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void *cookie,
                                           const char *stat_key,
@@ -99,7 +101,8 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* item,
                                       uint64_t *cas,
-                                      ENGINE_STORE_OPERATION operation);
+                                      ENGINE_STORE_OPERATION operation,
+                                      uint16_t vbucket);
 static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const void* cookie,
                                            const void* key,
@@ -110,7 +113,8 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const uint64_t initial,
                                            const rel_time_t exptime,
                                            uint64_t *cas,
-                                           uint64_t *result);
+                                           uint64_t *result,
+                                           uint16_t vbucket);
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
                                       const void* cookie, time_t when);
 static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
@@ -522,10 +526,11 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
                                             const size_t nkey,
-                                            uint64_t cas) {
+                                            uint64_t cas,
+                                            uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->remove(e->v0, cookie, key, nkey, cas);
+        return e->v1->remove(e->v0, cookie, key, nkey, cas, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -544,10 +549,11 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** item,
                                     const void* key,
-                                    const int nkey) {
+                                    const int nkey,
+                                    uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->get(e->v0, cookie, item, key, nkey);
+        return e->v1->get(e->v0, cookie, item, key, nkey, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -650,10 +656,11 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* item,
                                       uint64_t *cas,
-                                      ENGINE_STORE_OPERATION operation) {
+                                      ENGINE_STORE_OPERATION operation,
+                                      uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->store(e->v0, cookie, item, cas, operation);
+        return e->v1->store(e->v0, cookie, item, cas, operation, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -669,12 +676,13 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const uint64_t initial,
                                            const rel_time_t exptime,
                                            uint64_t *cas,
-                                           uint64_t *result) {
+                                           uint64_t *result,
+                                           uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         return e->v1->arithmetic(e->v0, cookie, key, nkey,
                                  increment, create, delta, initial,
-                                 exptime, cas, result);
+                                 exptime, cas, result, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }

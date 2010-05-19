@@ -64,14 +64,16 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const void* key,
                                           const size_t nkey,
-                                          uint64_t cas);
+                                          uint64_t cas,
+                                          uint16_t vbucket);
 static void mock_item_release(ENGINE_HANDLE* handle,
                               const void *cookie, item* item);
 static ENGINE_ERROR_CODE mock_get(ENGINE_HANDLE* handle,
                                   const void* cookie,
                                   item** item,
                                   const void* key,
-                                  const int nkey);
+                                  const int nkey,
+                                  uint16_t vbucket);
 static ENGINE_ERROR_CODE mock_get_stats(ENGINE_HANDLE* handle,
                                         const void *cookie,
                                         const char *stat_key,
@@ -82,7 +84,8 @@ static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     const void *cookie,
                                     item* item,
                                     uint64_t *cas,
-                                    ENGINE_STORE_OPERATION operation);
+                                    ENGINE_STORE_OPERATION operation,
+                                    uint16_t vbucket);
 static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
                                          const void* cookie,
                                          const void* key,
@@ -93,7 +96,8 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
                                          const uint64_t initial,
                                          const rel_time_t exptime,
                                          uint64_t *cas,
-                                         uint64_t *result);
+                                         uint64_t *result,
+                                         uint16_t vbucket);
 static ENGINE_ERROR_CODE mock_flush(ENGINE_HANDLE* handle,
                                     const void* cookie, time_t when);
 static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
@@ -249,7 +253,8 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const void* key,
                                           const size_t nkey,
-                                          uint64_t cas) {
+                                          uint64_t cas,
+                                          uint16_t vbucket) {
     int r = genhash_delete_all(get_ht(handle), key, nkey);
     return r > 0 ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 }
@@ -263,7 +268,8 @@ static ENGINE_ERROR_CODE mock_get(ENGINE_HANDLE* handle,
                                   const void* cookie,
                                   item** item,
                                   const void* key,
-                                  const int nkey) {
+                                  const int nkey,
+                                  uint16_t vbucket) {
     *item = genhash_find(get_ht(handle), key, nkey);
 
     return *item ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
@@ -283,7 +289,8 @@ static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     const void *cookie,
                                     item* item,
                                     uint64_t *cas,
-                                    ENGINE_STORE_OPERATION operation) {
+                                    ENGINE_STORE_OPERATION operation,
+                                    uint16_t vbucket) {
     mock_item* it = (mock_item*)item;
     genhash_update(get_ht(handle), item_get_key(item), it->nkey, item, 0);
     return ENGINE_SUCCESS;
@@ -299,12 +306,13 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
                                          const uint64_t initial,
                                          const rel_time_t exptime,
                                          uint64_t *cas,
-                                         uint64_t *result) {
+                                         uint64_t *result,
+                                         uint16_t vbucket) {
     item *item_in = NULL, *item_out = NULL;
     int flags = 0;
     *cas = 0;
 
-    if (mock_get(handle, cookie, &item_in, key, nkey) == ENGINE_SUCCESS) {
+    if (mock_get(handle, cookie, &item_in, key, nkey, 0) == ENGINE_SUCCESS) {
         // Found, just do the math.
         // This is all int stuff, just to make it easy.
         *result = atoi(item_get_data(item_in));
@@ -328,7 +336,7 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
         return rv;
     }
     memcpy(item_get_data(item_out), buf, strlen(buf) + 1);
-    mock_store(handle, cookie, item_out, 0, OPERATION_SET);
+    mock_store(handle, cookie, item_out, 0, OPERATION_SET, 0);
     return ENGINE_SUCCESS;
 }
 
