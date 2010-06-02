@@ -486,11 +486,6 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
     struct bucket_engine* se = get_handle(handle);
 
     if (se->initialized) {
-        proxied_engine_t *e = get_engine(handle, NULL);
-        if (e) {
-            e->v1->destroy(e->v0);
-            e->v0 = NULL;
-        }
         genhash_free(se->engines);
         se->engines = NULL;
         free(se->proxied_engine_path);
