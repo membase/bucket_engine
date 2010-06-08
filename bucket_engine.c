@@ -463,6 +463,16 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         se->default_engine.refcount = 1;
         se->default_engine.valid = true;
         se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
+
+        ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
+        if (!dv1) {
+            return ENGINE_FAILED;
+        }
+
+        if (dv1->initialize(se->default_engine.pe.v0, config_str) != ENGINE_SUCCESS) {
+            dv1->destroy(se->default_engine.pe.v0);
+            return ENGINE_FAILED;
+        }
     }
 
     se->server->callback->register_callback(ON_CONNECT, handle_connect, se);
