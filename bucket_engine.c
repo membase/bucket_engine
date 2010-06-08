@@ -341,16 +341,7 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
         return NULL;
     }
 
-    if (engine->interface == 1) {
-        ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
-        if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-            v1->destroy(engine);
-            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                    error);
-            dlclose(handle);
-            return NULL;
-        }
-    } else {
+    if (engine->interface != 1) {
         fprintf(stderr, "Unsupported interface level\n");
         dlclose(handle);
         return NULL;
