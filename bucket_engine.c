@@ -979,7 +979,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     default: {
         proxied_engine_t *e = get_engine(handle, cookie);
         if (e) {
-            rv = e->v1->unknown_command(handle, cookie, request, response);
+            rv = e->v1->unknown_command(e->v0, cookie, request, response);
         } else {
             rv = ENGINE_DISCONNECT;
         }
