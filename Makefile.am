@@ -25,7 +25,7 @@ pkgdata_SCRIPTS = management/create_bucket.py  management/delete_bucket.py  mana
 
 EXTRA_DIST = $(pkgdata_SCRIPTS)
 
-test: testapp
+test: all testapp
 	./testapp
 
 version:
