@@ -128,21 +128,26 @@ struct bucket_engine bucket_engine = {
         .interface = {
             .interface = 1
         },
-        .get_info = bucket_get_info,
-        .initialize = bucket_initialize,
-        .destroy = bucket_destroy,
-        .allocate = bucket_item_allocate,
-        .remove = bucket_item_delete,
-        .release = bucket_item_release,
-        .get = bucket_get,
-        .get_stats = bucket_get_stats,
+        .get_info         = bucket_get_info,
+        .initialize       = bucket_initialize,
+        .destroy          = bucket_destroy,
+        .allocate         = bucket_item_allocate,
+        .remove           = bucket_item_delete,
+        .release          = bucket_item_release,
+        .get              = bucket_get,
+        .store            = bucket_store,
+        .arithmetic       = bucket_arithmetic,
+        .flush            = bucket_flush,
+        .get_stats        = bucket_get_stats,
+        .reset_stats      = bucket_reset_stats,
         .get_stats_struct = bucket_get_stats_struct,
-        .aggregate_stats = bucket_aggregate_stats,
-        .reset_stats = bucket_reset_stats,
-        .store = bucket_store,
-        .arithmetic = bucket_arithmetic,
-        .flush = bucket_flush,
-        .unknown_command = bucket_unknown_command
+        .aggregate_stats  = bucket_aggregate_stats,
+        .unknown_command  = bucket_unknown_command,
+        .tap_notify       = NULL, /* TODO */
+        .get_tap_iterator = NULL, /* TODO */
+        .item_set_cas     = NULL, /* TODO */
+        .get_item_info    = NULL, /* TODO */
+        .errinfo          = NULL, /* TODO */
     },
     .initialized = false,
     .info.engine_info = {
@@ -171,7 +176,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     }
 
     *handle = (ENGINE_HANDLE*)&bucket_engine;
-    bucket_engine.get_server_api = gsapi;
+    bucket_engine.get_server_api = gsapi; // XXX:  Do not pass through.
     bucket_engine.server = gsapi();
     return ENGINE_SUCCESS;
 }
