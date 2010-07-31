@@ -139,6 +139,31 @@ static bool bucket_get_item_info(ENGINE_HANDLE *handle,
 static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
                                 item *item, uint64_t cas);
 
+static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
+                                           const void *cookie,
+                                           void *engine_specific,
+                                           uint16_t nengine,
+                                           uint8_t ttl,
+                                           uint16_t tap_flags,
+                                           tap_event_t tap_event,
+                                           uint32_t tap_seqno,
+                                           const void *key,
+                                           size_t nkey,
+                                           uint32_t flags,
+                                           uint32_t exptime,
+                                           uint64_t cas,
+                                           const void *data,
+                                           size_t ndata,
+                                           uint16_t vbucket);
+
+static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
+                                            const void* client, size_t nclient,
+                                            uint32_t flags,
+                                            const void* userdata, size_t nuserdata);
+
+static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
+                             char *buffer, size_t buffsz);
+
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -159,11 +184,11 @@ struct bucket_engine bucket_engine = {
         .get_stats_struct = bucket_get_stats_struct,
         .aggregate_stats  = bucket_aggregate_stats,
         .unknown_command  = bucket_unknown_command,
-        .tap_notify       = NULL, /* TODO */
-        .get_tap_iterator = NULL, /* TODO */
+        .tap_notify       = bucket_tap_notify,
+        .get_tap_iterator = bucket_get_tap_iterator,
         .item_set_cas     = bucket_item_set_cas,
         .get_item_info    = bucket_get_item_info,
-        .errinfo          = NULL, /* TODO */
+        .errinfo          = bucket_errinfo
     },
     .initialized = false,
     .info.engine_info = {
@@ -567,8 +592,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_FAILED;
     }
     ENGINE_HANDLE_V1 *hv1 = (ENGINE_HANDLE_V1*)eh;
-    bucket_engine.engine.item_set_cas = hv1->item_set_cas;
-    bucket_engine.engine.get_item_info = hv1->get_item_info;
     // Shut it back down.
     ENGINE_HANDLE_V1 *ehv1 = (ENGINE_HANDLE_V1*)eh;
     ehv1->destroy(eh);
@@ -840,6 +863,56 @@ static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         e->v1->item_set_cas(e->v0, cookie, item, cas);
+    }
+}
+
+static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
+                                           const void *cookie,
+                                           void *engine_specific,
+                                           uint16_t nengine,
+                                           uint8_t ttl,
+                                           uint16_t tap_flags,
+                                           tap_event_t tap_event,
+                                           uint32_t tap_seqno,
+                                           const void *key,
+                                           size_t nkey,
+                                           uint32_t flags,
+                                           uint32_t exptime,
+                                           uint64_t cas,
+                                           const void *data,
+                                           size_t ndata,
+                                           uint16_t vbucket) {
+    proxied_engine_t *e = get_engine(handle, cookie);
+    if (e) {
+        e->v1->tap_notify(handle, cookie, engine_specific,
+                          nengine, ttl, tap_flags, tap_event, tap_seqno,
+                          key, nkey, flags, exptime, cas, data, ndata, vbucket);
+    } else {
+        return ENGINE_DISCONNECT;
+    }
+}
+
+static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
+                                            const void* client, size_t nclient,
+                                            uint32_t flags,
+                                            const void* userdata, size_t nuserdata) {
+    proxied_engine_t *e = get_engine(handle, cookie);
+    if (e) {
+        return e->v1->get_tap_iterator(handle, cookie,
+                                       client, nclient,
+                                       flags, userdata, nuserdata);
+    } else {
+        return NULL;
+    }
+}
+
+static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
+                             char *buffer, size_t buffsz) {
+    proxied_engine_t *e = get_engine(handle, cookie);
+    if (e) {
+        return e->v1->errinfo(handle, cookie, buffer, buffsz);
+    } else {
+        return 0;
     }
 }
 
