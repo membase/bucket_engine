@@ -22,9 +22,11 @@ struct mock_stats {
 struct mock_engine {
     ENGINE_HANDLE_V1 engine;
     uint64_t magic;
+    SERVER_HANDLE_V1 *server;
     bool initialized;
     genhash_t *hashtbl;
     struct mock_stats stats;
+    int disconnects;
     uint64_t magic2;
 
     union {
@@ -112,6 +114,15 @@ static uint8_t item_get_clsid(const item* item);
 
 static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info);
 
+static void handle_disconnect(const void *cookie,
+                              ENGINE_EVENT_TYPE type,
+                              const void *event_data,
+                              const void *cb_data) {
+    assert(type == ON_DISCONNECT);
+    struct mock_engine *h = (struct mock_engine*)cb_data;
+    ++h->disconnects;
+}
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -137,6 +148,8 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     h->engine.unknown_command = mock_unknown_command;
     h->engine.item_set_cas = item_set_cas;
     h->engine.get_item_info = get_item_info;
+
+    h->server = gsapi();
 
     h->magic = MAGIC;
     h->magic2 = MAGIC;
@@ -199,6 +212,10 @@ static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
         se->hashtbl = genhash_init(1, my_hash_ops);
         assert(se->hashtbl);
     }
+
+    se->server->callback->register_callback(ON_DISCONNECT,
+                                            handle_disconnect, se,
+                                            (ENGINE_HANDLE*)se);
 
     se->initialized = true;
 

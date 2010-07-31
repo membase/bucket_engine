@@ -27,6 +27,10 @@ typedef struct proxied_engine_handle {
     struct thread_stats *stats;
     int refcount;
     bool valid;
+    /* ON_DISCONNECT handling */
+    bool wants_disconnects;
+    EVENT_CALLBACK cb;
+    const void *cb_data;
 } proxied_engine_handle_t;
 
 struct bucket_engine {
@@ -43,6 +47,8 @@ struct bucket_engine {
     genhash_t *engines;
     CREATE_INSTANCE new_engine;
     GET_SERVER_API get_server_api;
+    SERVER_HANDLE_V1 server;
+    SERVER_CALLBACK_API callback_api;
 
     union {
       engine_info engine_info;
@@ -123,6 +129,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 protocol_binary_request_header *request,
                                                 ADD_RESPONSE response);
+
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -166,6 +173,57 @@ static const char *get_default_bucket_config() {
     return config != NULL ? config : "";
 }
 
+static SERVER_HANDLE_V1 *bucket_get_server_api(void) {
+    return &bucket_engine.server;
+}
+
+struct bucket_find_by_handle_data {
+    ENGINE_HANDLE *needle;
+    proxied_engine_handle_t *peh;
+};
+
+static void find_bucket_by_engine(const void* key, size_t nkey,
+                                  const void *val, size_t nval,
+                                  void *args) {
+    struct bucket_find_by_handle_data *find_data = args;
+    assert(find_data);
+    assert(find_data->needle);
+
+    const proxied_engine_handle_t *peh = val;
+    if (find_data->needle == peh->pe.v0) {
+        find_data->peh = (proxied_engine_handle_t *)peh;
+    }
+}
+
+static void bucket_register_callback(ENGINE_EVENT_TYPE type,
+                                     EVENT_CALLBACK cb, const void *cb_data,
+                                     ENGINE_HANDLE *eh) {
+
+    /* For simplicity, we're not going to test every combination until
+       we need them. */
+    assert(type == ON_DISCONNECT);
+
+    /* Assume this always happens while holding the hash table lock. */
+
+    struct {
+        ENGINE_HANDLE *needle;
+        proxied_engine_handle_t *peh;
+    } find_data = { eh, NULL };
+
+    genhash_iter(bucket_engine.engines, find_bucket_by_engine, &find_data);
+
+    if (find_data.peh) {
+        find_data.peh->wants_disconnects = true;
+        find_data.peh->cb = cb;
+        find_data.peh->cb_data = cb_data;
+    }
+}
+
+static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
+                                     const void *data, const void *cookie) {
+    abort(); /* Not implemented */
+}
+
 /* Engine API functions */
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
@@ -176,8 +234,15 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     }
 
     *handle = (ENGINE_HANDLE*)&bucket_engine;
-    bucket_engine.get_server_api = gsapi; // XXX:  Do not pass through.
     bucket_engine.upstream_server = gsapi();
+    bucket_engine.server = *bucket_engine.upstream_server;
+    bucket_engine.get_server_api = bucket_get_server_api;
+
+    /* Use our own callback API for inferior engines */
+    bucket_engine.callback_api.register_callback = bucket_register_callback;
+    bucket_engine.callback_api.perform_callbacks = bucket_perform_callbacks;
+    bucket_engine.server.callback = &bucket_engine.callback_api;
+
     return ENGINE_SUCCESS;
 }
 
@@ -214,9 +279,6 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     if (!has_valid_bucket_name(bucket_name)) {
         return ENGINE_EINVAL;
     }
-    if (pthread_mutex_lock(&e->engines_mutex) != 0) {
-        return ENGINE_FAILED;
-    }
 
     *e_out = calloc(sizeof(proxied_engine_handle_t), 1);
     proxied_engine_handle_t *peh = *e_out;
@@ -226,20 +288,27 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->refcount = 1;
     peh->valid = true;
 
-    ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
-    // This was already verified, but we'll check it anyway
-    assert(peh->pe.v0->interface == 1);
-    if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
-
-        peh->pe.v1->destroy(peh->pe.v0);
-        fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                rv);
-        pthread_mutex_unlock(&e->engines_mutex);
-        return rv;
+    if (pthread_mutex_lock(&e->engines_mutex) != 0) {
+        release_handle(peh);
+        return ENGINE_FAILED;
     }
+
+    ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
 
     if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
         genhash_update(e->engines, bucket_name, strlen(bucket_name), peh, 0);
+
+        // This was already verified, but we'll check it anyway
+        assert(peh->pe.v0->interface == 1);
+        if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
+            peh->pe.v1->destroy(peh->pe.v0);
+            genhash_delete_all(e->engines, bucket_name, strlen(bucket_name));
+            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
+                    rv);
+            pthread_mutex_unlock(&e->engines_mutex);
+            return ENGINE_FAILED;
+        }
+
         rv = ENGINE_SUCCESS;
     } else {
         rv = ENGINE_KEY_EEXISTS;
@@ -370,8 +439,15 @@ static void handle_disconnect(const void *cookie,
                               const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
+    proxied_engine_handle_t *peh =
+        e->upstream_server->core->get_engine_specific(cookie);
+
+    if (peh && peh->wants_disconnects) {
+        peh->cb(cookie, type, event_data, peh->cb_data);
+    }
+
     // Free up the engine we were using.
-    release_handle(e->upstream_server->core->get_engine_specific(cookie));
+    release_handle(peh);
 }
 
 static void handle_connect(const void *cookie,
