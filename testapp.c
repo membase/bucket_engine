@@ -284,12 +284,13 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
 // ----------------------------------------------------------------------
 
 static bool item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
-                    item *item1, item *item2) {
+                    const void *c1, item *item1,
+                    const void *c2, item *item2) {
     item_info i1 = { .nvalue = 1 };
     item_info i2 = { .nvalue = 1 };
 
-    if (!h1->get_item_info(h, item1, &i1) ||
-        !h1->get_item_info(h, item2, &i2))
+    if (!h1->get_item_info(h, c1, item1, &i1) ||
+        !h1->get_item_info(h, c2, item2, &i2))
         return false;
 
     return i1.exptime == i2.exptime
@@ -303,8 +304,9 @@ static bool item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 }
 
 static void assert_item_eq(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
-                           item *i1, item *i2) {
-    assert(item_eq(h, h1, i1, i2));
+                           const void *c1, item *i1,
+                           const void *c2, item *i2) {
+    assert(item_eq(h, h1, c1, i1, c2, i2));
 }
 
 /* Convenient storage abstraction */
@@ -323,7 +325,7 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, item, &info);
+    h1->get_item_info(h, cookie, item, &info);
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
@@ -350,7 +352,7 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, item, &info);
+    assert(h1->get_item_info(h, cookie, item, &info));
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
@@ -360,7 +362,7 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, item, fetched_item);
+    assert_item_eq(h, h1, cookie, item, cookie, fetched_item);
 
     // no effect, but increases coverage.
     h1->reset_stats(h, cookie);
@@ -383,7 +385,7 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, item, &info);
+    h1->get_item_info(h, cookie, item, &info);
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
@@ -393,9 +395,9 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie, &fetched_item, "somekey", strlen("somekey"), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, item, fetched_item);
+    assert_item_eq(h, h1, cookie, item, cookie, fetched_item);
 
-    h1->get_item_info(h, fetched_item, &info);
+    h1->get_item_info(h, cookie, fetched_item, &info);
 
     rv = h1->remove(h, cookie, info.key, info.nkey, info.cas, 0);
     assert(rv == ENGINE_SUCCESS);
@@ -494,9 +496,9 @@ static enum test_result test_two_engines(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie2, &fetched_item2, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert(!item_eq(h, h1, fetched_item1, fetched_item2));
-    assert_item_eq(h, h1, item1, fetched_item1);
-    assert_item_eq(h, h1, item2, fetched_item2);
+    assert(!item_eq(h, h1, cookie1, fetched_item1, cookie2, fetched_item2));
+    assert_item_eq(h, h1, cookie1, item1, cookie1, fetched_item1);
+    assert_item_eq(h, h1, cookie2, item2, cookie2, fetched_item2);
 
     return SUCCESS;
 }
@@ -523,7 +525,7 @@ static enum test_result test_two_engines_del(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie2, &fetched_item2, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, item2, fetched_item2);
+    assert_item_eq(h, h1, cookie1, item2, cookie2, fetched_item2);
 
     return SUCCESS;
 }
@@ -550,7 +552,7 @@ static enum test_result test_two_engines_flush(ENGINE_HANDLE *h,
     rv = h1->get(h, cookie2, &fetched_item2, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, item2, fetched_item2);
+    assert_item_eq(h, h1, cookie2, item2, cookie2, fetched_item2);
 
     return SUCCESS;
 }
@@ -941,7 +943,7 @@ static enum test_result test_select(ENGINE_HANDLE *h,
     rv = h1->get(h, admin, &fetched_item2, key, strlen(key), 0);
     assert(rv == ENGINE_KEY_ENOENT);
 
-    assert_item_eq(h, h1, item1, fetched_item1);
+    assert_item_eq(h, h1, cookie1, item1, cookie1, fetched_item1);
 
     void *pkt = create_packet(SELECT_BUCKET, "user1", "");
     rv = h1->unknown_command(h, admin, pkt, add_response);
@@ -951,7 +953,7 @@ static enum test_result test_select(ENGINE_HANDLE *h,
 
     rv = h1->get(h, admin, &fetched_item2, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
-    assert_item_eq(h, h1, item1, fetched_item2);
+    assert_item_eq(h, h1, cookie1, item1, admin, fetched_item2);
 
     return SUCCESS;
 }

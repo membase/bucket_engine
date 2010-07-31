@@ -131,6 +131,14 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 protocol_binary_request_header *request,
                                                 ADD_RESPONSE response);
 
+static bool bucket_get_item_info(ENGINE_HANDLE *handle,
+                                 const void *cookie,
+                                 const item* item,
+                                 item_info *item_info);
+
+static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
+                                item *item, uint64_t cas);
+
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -153,8 +161,8 @@ struct bucket_engine bucket_engine = {
         .unknown_command  = bucket_unknown_command,
         .tap_notify       = NULL, /* TODO */
         .get_tap_iterator = NULL, /* TODO */
-        .item_set_cas     = NULL, /* TODO */
-        .get_item_info    = NULL, /* TODO */
+        .item_set_cas     = bucket_item_set_cas,
+        .get_item_info    = bucket_get_item_info,
         .errinfo          = NULL, /* TODO */
     },
     .initialized = false,
@@ -812,6 +820,26 @@ static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         e->v1->reset_stats(e->v0, cookie);
+    }
+}
+
+static bool bucket_get_item_info(ENGINE_HANDLE *handle,
+                                 const void *cookie,
+                                 const item* item,
+                                 item_info *item_info) {
+    proxied_engine_t *e = get_engine(handle, cookie);
+    if (e) {
+        return e->v1->get_item_info(e->v0, cookie, item, item_info);
+    } else {
+        return false;
+    }
+}
+
+static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
+                                item *item, uint64_t cas) {
+    proxied_engine_t *e = get_engine(handle, cookie);
+    if (e) {
+        e->v1->item_set_cas(e->v0, cookie, item, cas);
     }
 }
 

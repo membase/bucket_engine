@@ -108,11 +108,13 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               ADD_RESPONSE response);
 static char* item_get_data(const item* item);
 static const char* item_get_key(const item* item);
-static void item_set_cas(ENGINE_HANDLE* handle, item* item, uint64_t val);
+static void item_set_cas(ENGINE_HANDLE* handle, const void *cookie,
+                         item* item, uint64_t val);
 static uint64_t item_get_cas(const item* item);
 static uint8_t item_get_clsid(const item* item);
 
-static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info);
+static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
+                          const item* item, item_info *item_info);
 
 static void handle_disconnect(const void *cookie,
                               ENGINE_EVENT_TYPE type,
@@ -386,7 +388,8 @@ static uint64_t item_get_cas(const item* item)
     return it->cas;
 }
 
-static void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
+static void item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
+                         item* item, uint64_t val)
 {
     mock_item* it = (mock_item*)item;
     it->cas = val;
@@ -410,7 +413,8 @@ static uint8_t item_get_clsid(const item* item)
     return 0;
 }
 
-static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info)
+static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
+                          const item* item, item_info *item_info)
 {
     mock_item* it = (mock_item*)item;
     if (item_info->nvalue < 1) {
