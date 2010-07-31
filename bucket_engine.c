@@ -49,6 +49,7 @@ struct bucket_engine {
     GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 server;
     SERVER_CALLBACK_API callback_api;
+    SERVER_EXTENSION_API extension_api;
 
     union {
       engine_info engine_info;
@@ -224,6 +225,19 @@ static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
     abort(); /* Not implemented */
 }
 
+static bool bucket_register_extension(extension_type_t type,
+                                      void *extension) {
+    return false;
+}
+
+static void bucket_unregister_extension(extension_type_t type, void *extension) {
+    abort(); /* No extensions registered, none can unregister */
+}
+
+static void* bucket_get_extension(extension_type_t type) {
+    return bucket_engine.upstream_server->extension->get_extension(type);
+}
+
 /* Engine API functions */
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
@@ -242,6 +256,12 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     bucket_engine.callback_api.register_callback = bucket_register_callback;
     bucket_engine.callback_api.perform_callbacks = bucket_perform_callbacks;
     bucket_engine.server.callback = &bucket_engine.callback_api;
+
+    /* Same for extensions */
+    bucket_engine.extension_api.register_extension = bucket_register_extension;
+    bucket_engine.extension_api.unregister_extension = bucket_unregister_extension;
+    bucket_engine.extension_api.get_extension = bucket_get_extension;
+    bucket_engine.server.extension = &bucket_engine.extension_api;
 
     return ENGINE_SUCCESS;
 }
