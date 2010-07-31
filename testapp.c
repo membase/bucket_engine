@@ -110,7 +110,8 @@ static void disconnect(struct connstruct *c) {
 
 static void register_callback(ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb,
-                              const void *cb_data) {
+                              const void *cb_data,
+                              ENGINE_HANDLE *eh) {
     struct engine_event_handler *h =
         calloc(sizeof(struct engine_event_handler), 1);
     assert(h);
