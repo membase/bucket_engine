@@ -16,6 +16,7 @@
 #include "memcached/engine.h"
 #include "memcached/util.h"
 
+#define ENGINE_PATH ".libs/mock_engine.so"
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin" \
     ";auto_create=false"
 #define DEFAULT_CONFIG_NO_DEF "engine=.libs/mock_engine.so;default=false;admin=admin" \
@@ -623,7 +624,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -642,13 +643,13 @@ static enum test_result test_double_create_bucket(ENGINE_HANDLE *h,
     const void *adm_cookie = mk_conn("admin", NULL);
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -670,7 +671,7 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "no_alloc");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH " no_alloc");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -689,19 +690,19 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
     // Test with no user.
-    void *pkt = create_packet(CREATE_BUCKET, "newbucket", "");
+    void *pkt = create_packet(CREATE_BUCKET, "newbucket", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn(NULL, NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with non-admin
-    pkt = create_packet(CREATE_BUCKET, "newbucket", "");
+    pkt = create_packet(CREATE_BUCKET, "newbucket", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("notadmin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_ENOTSUP);
 
     // Test with admin
-    pkt = create_packet(CREATE_BUCKET, "newbucket", "");
+    pkt = create_packet(CREATE_BUCKET, "newbucket", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -719,7 +720,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -756,7 +757,7 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket one", "");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket one", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -790,7 +791,7 @@ static enum test_result test_list_buckets_one(ENGINE_HANDLE *h,
 
     // Create a bucket first.
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -816,13 +817,13 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
 
     // Create two buckets first.
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", ENGINE_PATH);
     rv = h1->unknown_command(h, cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    pkt = create_packet(CREATE_BUCKET, "bucket2", "");
+    pkt = create_packet(CREATE_BUCKET, "bucket2", ENGINE_PATH);
     rv = h1->unknown_command(h, cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -847,7 +848,7 @@ static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "bucket1", "");
+    void *pkt = create_packet(CREATE_BUCKET, "bucket1", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -883,7 +884,7 @@ static enum test_result test_unknown_call(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -901,7 +902,7 @@ static enum test_result test_select_no_admin(ENGINE_HANDLE *h,
                                              ENGINE_HANDLE_V1 *h1) {
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    void *pkt = create_packet(CREATE_BUCKET, "someuser", "");
+    void *pkt = create_packet(CREATE_BUCKET, "someuser", ENGINE_PATH);
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);

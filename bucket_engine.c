@@ -352,6 +352,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
                                        const char *path,
                                        const char *config,
                                        proxied_engine_handle_t **e_out) {
+
     if (!has_valid_bucket_name(bucket_name)) {
         return ENGINE_EINVAL;
     }
@@ -990,14 +991,23 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     size_t bodylen = ntohl(breq->message.header.request.bodylen)
         - ntohs(breq->message.header.request.keylen);
     assert(bodylen < (1 << 16)); // 64k ought to be enough for anybody
-    char configz[bodylen + 1];
-    memcpy(configz, ((void*)request) + sizeof(breq->message.header)
+    char spec[bodylen + 1];
+    memcpy(spec, ((void*)request) + sizeof(breq->message.header)
            + ntohs(breq->message.header.request.keylen), bodylen);
-    configz[bodylen] = 0x00;
+    spec[bodylen] = 0x00;
+
+    char *marker = NULL;
+    char *eso = strtok_r(spec, " ", &marker);
+    if (!eso) {
+        const char *msg = "Invalid request.";
+        response(msg, strlen(msg), "", 0, "", 0, 0,
+                 PROTOCOL_BINARY_RESPONSE_EINVAL, 0, cookie);
+        return ENGINE_SUCCESS;
+    }
+    char *config = strtok_r(NULL, " ", &marker);
 
     proxied_engine_handle_t *peh = NULL;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, e->default_engine_path,
-                                          configz, &peh);
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec, config ? config : "", &peh);
 
     const char *msg = "";
     protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
