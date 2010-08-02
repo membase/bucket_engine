@@ -229,9 +229,9 @@ static void find_bucket_by_engine(const void* key, size_t nkey,
     }
 }
 
-static void bucket_register_callback(ENGINE_EVENT_TYPE type,
-                                     EVENT_CALLBACK cb, const void *cb_data,
-                                     ENGINE_HANDLE *eh) {
+static void bucket_register_callback(ENGINE_HANDLE *eh,
+                                     ENGINE_EVENT_TYPE type,
+                                     EVENT_CALLBACK cb, const void *cb_data) {
 
     /* For simplicity, we're not going to test every combination until
        we need them. */
@@ -616,12 +616,12 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         }
     }
 
-    se->upstream_server->callback->register_callback(ON_CONNECT,
-                                                     handle_connect, se, handle);
-    se->upstream_server->callback->register_callback(ON_AUTH,
-                                                     handle_auth, se, handle);
-    se->upstream_server->callback->register_callback(ON_DISCONNECT,
-                                                     handle_disconnect, se, handle);
+    se->upstream_server->callback->register_callback(handle, ON_CONNECT,
+                                                     handle_connect, se);
+    se->upstream_server->callback->register_callback(handle, ON_AUTH,
+                                                     handle_auth, se);
+    se->upstream_server->callback->register_callback(handle, ON_DISCONNECT,
+                                                     handle_disconnect, se);
 
     se->initialized = true;
     return ENGINE_SUCCESS;

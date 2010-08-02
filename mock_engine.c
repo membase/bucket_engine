@@ -215,9 +215,8 @@ static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
         assert(se->hashtbl);
     }
 
-    se->server->callback->register_callback(ON_DISCONNECT,
-                                            handle_disconnect, se,
-                                            (ENGINE_HANDLE*)se);
+    se->server->callback->register_callback((ENGINE_HANDLE*)se, ON_DISCONNECT,
+                                            handle_disconnect, se);
 
     se->initialized = true;
 

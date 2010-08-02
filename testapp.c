@@ -66,7 +66,8 @@ static struct engine_event_handler *engine_event_handlers[MAX_ENGINE_EVENT_TYPE 
 
 static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
                                      const void *data,
-                                     struct connstruct *c) {
+                                     const void *cookie) {
+    struct connstruct *c = (struct connstruct*) cookie;
     for (struct engine_event_handler *h = engine_event_handlers[type];
          h; h = h->next) {
         h->cb(c, type, data, h->cb_data);
@@ -108,10 +109,10 @@ static void disconnect(struct connstruct *c) {
     perform_callbacks(ON_DISCONNECT, NULL, c);
 }
 
-static void register_callback(ENGINE_EVENT_TYPE type,
+static void register_callback(ENGINE_HANDLE *eh,
+                              ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb,
-                              const void *cb_data,
-                              ENGINE_HANDLE *eh) {
+                              const void *cb_data) {
     struct engine_event_handler *h =
         calloc(sizeof(struct engine_event_handler), 1);
     assert(h);
@@ -183,7 +184,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
 
     static SERVER_CALLBACK_API callback_api = {
         .register_callback = register_callback,
-        // .perform_callbacks = perform_callbacks,
+        .perform_callbacks = perform_callbacks,
     };
 
     static SERVER_HANDLE_V1 rv = {
