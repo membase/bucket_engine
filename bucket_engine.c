@@ -40,13 +40,12 @@ struct bucket_engine {
     bool initialized;
     bool has_default;
     bool auto_create;
-    char *proxied_engine_path;
+    char *default_engine_path;
     char *admin_user;
     char *default_bucket_name;
     proxied_engine_handle_t default_engine;
     pthread_mutex_t engines_mutex;
     genhash_t *engines;
-    CREATE_INSTANCE new_engine;
     GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 server;
     SERVER_CALLBACK_API callback_api;
@@ -165,6 +164,9 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
 
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz);
+
+static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
+                                  CREATE_INSTANCE *create_out);
 
 struct bucket_engine bucket_engine = {
     .engine = {
@@ -347,6 +349,7 @@ static bool has_valid_bucket_name(const char *n) {
 
 static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
                                        const char *bucket_name,
+                                       const char *path,
                                        const char *config,
                                        proxied_engine_handle_t **e_out) {
     if (!has_valid_bucket_name(bucket_name)) {
@@ -361,12 +364,19 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->refcount = 1;
     peh->valid = true;
 
+    ENGINE_ERROR_CODE rv = ENGINE_FAILED;
+
     if (pthread_mutex_lock(&e->engines_mutex) != 0) {
         release_handle(peh);
-        return ENGINE_FAILED;
+        return rv;
     }
 
-    ENGINE_ERROR_CODE rv = e->new_engine(1, e->get_server_api, &peh->pe.v0);
+    peh->pe.v0 = load_engine(path, config, NULL);
+
+    if (!peh->pe.v0) {
+        release_handle(peh);
+        return rv;
+    }
 
     if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
         genhash_update(e->engines, bucket_name, strlen(bucket_name), peh, 0);
@@ -540,6 +550,7 @@ static void handle_connect(const void *cookie,
         if (!peh && e->auto_create) {
             // XXX:  Need default config.
             create_bucket(e, e->default_bucket_name,
+                          e->default_engine_path,
                           get_default_bucket_config(), &peh);
         }
     } else {
@@ -569,7 +580,8 @@ static void handle_auth(const void *cookie,
         return;
     }
     if (!peh && e->auto_create) {
-        create_bucket(e, auth_data->username, auth_data->config ? auth_data->config : "", &peh);
+        create_bucket(e, auth_data->username, e->default_engine_path,
+                      auth_data->config ? auth_data->config : "", &peh);
     }
     retain_handle(peh);
     e->upstream_server->core->store_engine_specific(cookie, peh);
@@ -605,17 +617,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_ENOMEM;
     }
 
-    // Load the engine and find the pointers to the item functions
-    ENGINE_HANDLE *eh = load_engine(se->proxied_engine_path, "",
-                                    &se->new_engine);
-    if (!eh) {
-        return ENGINE_FAILED;
-    }
-    ENGINE_HANDLE_V1 *hv1 = (ENGINE_HANDLE_V1*)eh;
-    // Shut it back down.
-    ENGINE_HANDLE_V1 *ehv1 = (ENGINE_HANDLE_V1*)eh;
-    ehv1->destroy(eh);
-
     // Initialization is useful to know if we *can* start up an
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
@@ -623,7 +624,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         memset(&se->default_engine, 0, sizeof(se->default_engine));
         se->default_engine.refcount = 1;
         se->default_engine.valid = true;
-        se->default_engine.pe.v0 = load_engine(se->proxied_engine_path, "", NULL);
+        se->default_engine.pe.v0 = load_engine(se->default_engine_path, "", NULL);
 
         ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
         if (!dv1) {
@@ -653,8 +654,8 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
     if (se->initialized) {
         genhash_free(se->engines);
         se->engines = NULL;
-        free(se->proxied_engine_path);
-        se->proxied_engine_path = NULL;
+        free(se->default_engine_path);
+        se->default_engine_path = NULL;
         free(se->admin_user);
         se->admin_user = NULL;
         free(se->default_bucket_name);
@@ -946,7 +947,7 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
         struct config_item items[] = {
             { .key = "engine",
               .datatype = DT_STRING,
-              .value.dt_string = &me->proxied_engine_path },
+              .value.dt_string = &me->default_engine_path },
             { .key = "admin",
               .datatype = DT_STRING,
               .value.dt_string = &me->admin_user },
@@ -995,7 +996,8 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     configz[bodylen] = 0x00;
 
     proxied_engine_handle_t *peh = NULL;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, configz, &peh);
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, e->default_engine_path,
+                                          configz, &peh);
 
     const char *msg = "";
     protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
