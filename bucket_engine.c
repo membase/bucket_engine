@@ -18,19 +18,20 @@
 #include "bucket_engine.h"
 
 typedef union proxied_engine {
-    ENGINE_HANDLE *v0;
+    ENGINE_HANDLE    *v0;
     ENGINE_HANDLE_V1 *v1;
 } proxied_engine_t;
 
 typedef struct proxied_engine_handle {
-    proxied_engine_t pe;
+    proxied_engine_t     pe;
     struct thread_stats *stats;
-    int refcount;
-    bool valid;
+    int                  refcount;
+    bool                 valid;
     /* ON_DISCONNECT handling */
-    bool wants_disconnects;
-    EVENT_CALLBACK cb;
-    const void *cb_data;
+    bool                 wants_disconnects;
+    EVENT_CALLBACK       cb;
+    const void          *cb_data;
+    void                *engine_specific;
 } proxied_engine_handle_t;
 
 struct bucket_engine {
@@ -50,6 +51,7 @@ struct bucket_engine {
     SERVER_HANDLE_V1 server;
     SERVER_CALLBACK_API callback_api;
     SERVER_EXTENSION_API extension_api;
+    SERVER_CORE_API core_api;
 
     union {
       engine_info engine_info;
@@ -258,6 +260,18 @@ static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
     abort(); /* Not implemented */
 }
 
+static void bucket_store_engine_specific(const void *cookie, void *engine_data) {
+    proxied_engine_handle_t *peh = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    if (peh) {
+        peh->engine_specific = engine_data;
+    }
+}
+
+static void* bucket_get_engine_specific(const void *cookie) {
+    proxied_engine_handle_t *peh = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    return peh ? peh->engine_specific : NULL;
+}
+
 static bool bucket_register_extension(extension_type_t type,
                                       void *extension) {
     return false;
@@ -295,6 +309,12 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     bucket_engine.extension_api.unregister_extension = bucket_unregister_extension;
     bucket_engine.extension_api.get_extension = bucket_get_extension;
     bucket_engine.server.extension = &bucket_engine.extension_api;
+
+    /* Override engine specific */
+    bucket_engine.core_api = *bucket_engine.upstream_server->core;
+    bucket_engine.server.core = &bucket_engine.core_api;
+    bucket_engine.server.core->store_engine_specific = bucket_store_engine_specific;
+    bucket_engine.server.core->get_engine_specific = bucket_get_engine_specific;
 
     return ENGINE_SUCCESS;
 }
