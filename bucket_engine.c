@@ -906,7 +906,7 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
                                            uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        e->v1->tap_notify(handle, cookie, engine_specific,
+        e->v1->tap_notify(e->v0, cookie, engine_specific,
                           nengine, ttl, tap_flags, tap_event, tap_seqno,
                           key, nkey, flags, exptime, cas, data, ndata, vbucket);
     } else {
@@ -920,7 +920,7 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
                                             const void* userdata, size_t nuserdata) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->get_tap_iterator(handle, cookie,
+        return e->v1->get_tap_iterator(e->v0, cookie,
                                        client, nclient,
                                        flags, userdata, nuserdata);
     } else {
@@ -932,7 +932,7 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->errinfo(handle, cookie, buffer, buffsz);
+        return e->v1->errinfo(e->v0, cookie, buffer, buffsz);
     } else {
         return 0;
     }

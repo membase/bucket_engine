@@ -990,6 +990,14 @@ static enum test_result test_auto_config(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_get_tap_iterator(ENGINE_HANDLE *h,
+                                              ENGINE_HANDLE_V1 *h1) {
+    // This is run for its side effect of not crashing.
+    TAP_ITERATOR ti = h1->get_tap_iterator(h, mk_conn("someuser", ""),
+                                           NULL, 0, 0, NULL, 0);
+    assert(ti == NULL);
+    return SUCCESS;
+}
 
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
@@ -1152,6 +1160,7 @@ int main(int argc, char **argv) {
         {"admin verification", test_admin_user},
         {"auto create with config", test_auto_config,
          DEFAULT_CONFIG_AC},
+        {"get tap iterator", test_get_tap_iterator},
         {NULL, NULL}
     };
 

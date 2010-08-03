@@ -125,6 +125,16 @@ static void handle_disconnect(const void *cookie,
     ++h->disconnects;
 }
 
+static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
+                                          const void* client, size_t nclient,
+                                          uint32_t flags,
+                                          const void* userdata, size_t nuserdata) {
+    struct mock_engine *e = (struct mock_engine*)handle;
+    assert(e->magic == MAGIC);
+    assert(e->magic2 == MAGIC);
+    return NULL;
+}
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -150,6 +160,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     h->engine.unknown_command = mock_unknown_command;
     h->engine.item_set_cas = item_set_cas;
     h->engine.get_item_info = get_item_info;
+    h->engine.get_tap_iterator = mock_get_tap_iterator;
 
     h->server = gsapi();
 
