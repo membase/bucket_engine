@@ -135,6 +135,28 @@ static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* coo
     return NULL;
 }
 
+static ENGINE_ERROR_CODE mock_tap_notify(ENGINE_HANDLE* handle,
+                                         const void *cookie,
+                                         void *engine_specific,
+                                         uint16_t nengine,
+                                         uint8_t ttl,
+                                         uint16_t tap_flags,
+                                         tap_event_t tap_event,
+                                         uint32_t tap_seqno,
+                                         const void *key,
+                                         size_t nkey,
+                                         uint32_t flags,
+                                         uint32_t exptime,
+                                         uint64_t cas,
+                                         const void *data,
+                                         size_t ndata,
+                                         uint16_t vbucket) {
+    struct mock_engine *e = (struct mock_engine*)handle;
+    assert(e->magic == MAGIC);
+    assert(e->magic2 == MAGIC);
+    return ENGINE_SUCCESS;
+}
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -161,6 +183,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     h->engine.item_set_cas = item_set_cas;
     h->engine.get_item_info = get_item_info;
     h->engine.get_tap_iterator = mock_get_tap_iterator;
+    h->engine.tap_notify = mock_tap_notify;
 
     h->server = gsapi();
 

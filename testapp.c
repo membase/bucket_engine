@@ -1012,6 +1012,17 @@ static enum test_result test_get_tap_iterator(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_tap_notify(ENGINE_HANDLE *h,
+                                        ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE ec = h1->tap_notify(h, mk_conn("someuser", ""),
+                                          NULL, 0, 0, 0, TAP_MUTATION, 0,
+                                          "akey", 4,
+                                          0, 0, 0,
+                                          "aval", 4, 0);
+    assert(ec == ENGINE_SUCCESS);
+    return SUCCESS;
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -1174,6 +1185,7 @@ int main(int argc, char **argv) {
         {"auto create with config", test_auto_config,
          DEFAULT_CONFIG_AC},
         {"get tap iterator", test_get_tap_iterator},
+        {"tap notify", test_tap_notify},
         {NULL, NULL}
     };
 
