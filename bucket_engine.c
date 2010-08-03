@@ -773,7 +773,6 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           int nkey,
                                           ADD_STAT add_stat) {
     ENGINE_ERROR_CODE rc = ENGINE_DISCONNECT;
-    char statval[20];
     proxied_engine_t *e = get_engine(handle, cookie);
 
     if (e) {
@@ -781,9 +780,12 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
         struct bucket_engine *be = (struct bucket_engine*)handle;
         proxied_engine_handle_t *peh =
             be->upstream_server->core->get_engine_specific(cookie);
-        snprintf(statval, 20, "%d", peh->refcount - 1);
-        add_stat("bucket_conns", strlen("bucket_conns"), statval,
-                 strlen(statval), cookie);
+        if (nkey == 0) {
+            char statval[20];
+            snprintf(statval, 20, "%d", peh->refcount - 1);
+            add_stat("bucket_conns", strlen("bucket_conns"), statval,
+                     strlen(statval), cookie);
+        }
     }
     return rc;
 }
