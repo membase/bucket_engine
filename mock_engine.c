@@ -246,7 +246,9 @@ static void mock_destroy(ENGINE_HANDLE* handle) {
 }
 
 static genhash_t *get_ht(ENGINE_HANDLE *handle) {
-    return get_handle(handle)->hashtbl;
+    struct mock_engine* se = get_handle(handle);
+    assert(se->initialized);
+    return se->hashtbl;
 }
 
 static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
