@@ -188,7 +188,7 @@ class MemcachedClient(object):
     def bucket_create(self, name, engine, config=""):
         """Create a bucket."""
         return self._doCmd(memcacheConstants.CMD_CREATE_BUCKET, name,
-                           " ".join([engine, config]))
+                           "\0".join([engine, config]))
 
     def bucket_delete(self, name):
         """Delete a bucket."""

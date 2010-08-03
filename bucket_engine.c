@@ -996,15 +996,16 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
            + ntohs(breq->message.header.request.keylen), bodylen);
     spec[bodylen] = 0x00;
 
-    char *marker = NULL;
-    char *eso = strtok_r(spec, " ", &marker);
-    if (!eso) {
+    if (!spec || (strlen(spec) == 0)) {
         const char *msg = "Invalid request.";
         response(msg, strlen(msg), "", 0, "", 0, 0,
                  PROTOCOL_BINARY_RESPONSE_EINVAL, 0, cookie);
         return ENGINE_SUCCESS;
     }
-    char *config = strtok_r(NULL, " ", &marker);
+    char *config = "";
+    if (strlen(spec) < bodylen) {
+        config = spec + strlen(spec)+1;
+    }
 
     proxied_engine_handle_t *peh = NULL;
     ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec, config ? config : "", &peh);
