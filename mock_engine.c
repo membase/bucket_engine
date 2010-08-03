@@ -218,6 +218,7 @@ static struct hash_ops my_hash_ops = {
 static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
                                          const char* config_str) {
     struct mock_engine* se = get_handle(handle);
+    assert(!se->initialized);
 
     assert(my_hash_ops.dupKey);
 
