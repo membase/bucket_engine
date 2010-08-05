@@ -27,6 +27,7 @@ typedef struct proxied_engine_handle {
     struct thread_stats *stats;
     int                  refcount;
     bool                 valid;
+    TAP_ITERATOR         tap_iterator;
     /* ON_DISCONNECT handling */
     bool                 wants_disconnects;
     EVENT_CALLBACK       cb;
@@ -395,8 +396,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     return rv;
 }
 
-static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
-                                           const void *cookie) {
+static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
+                                                         const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
     proxied_engine_handle_t *peh = e->upstream_server->core->get_engine_specific(cookie);
     if (peh != NULL && !peh->valid) {
@@ -405,14 +406,13 @@ static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
         return NULL;
     }
 
-    proxied_engine_t *rv = NULL;
-    if (peh) {
-        rv = &peh->pe;
-    } else {
-        rv = e->default_engine.pe.v0 ? &e->default_engine.pe : NULL;
-    }
+    return peh ? peh : (e->default_engine.pe.v0 ? &e->default_engine : NULL);
+}
 
-    return rv;
+static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
+                                           const void *cookie) {
+    proxied_engine_handle_t *peh = get_engine_handle(h, cookie);
+    return peh ? &peh->pe : NULL;
 }
 
 static inline struct bucket_engine* get_handle(ENGINE_HANDLE* handle) {
@@ -901,15 +901,36 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
     }
 }
 
+static tap_event_t bucket_tap_iterator_shim(ENGINE_HANDLE* handle,
+                                            const void *cookie,
+                                            item **item,
+                                            void **engine_specific,
+                                            uint16_t *nengine_specific,
+                                            uint8_t *ttl,
+                                            uint16_t *flags,
+                                            uint32_t *seqno,
+                                            uint16_t *vbucket) {
+    proxied_engine_handle_t *e = get_engine_handle(handle, cookie);
+    if (e && e->tap_iterator) {
+        assert(e->pe.v0 != handle);
+        return e->tap_iterator(e->pe.v0, cookie, item,
+                               engine_specific, nengine_specific,
+                               ttl, flags, seqno, vbucket);
+    } else {
+        return TAP_DISCONNECT;
+    }
+}
+
 static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
                                             const void* client, size_t nclient,
                                             uint32_t flags,
                                             const void* userdata, size_t nuserdata) {
-    proxied_engine_t *e = get_engine(handle, cookie);
+    proxied_engine_handle_t *e = get_engine_handle(handle, cookie);
     if (e) {
-        return e->v1->get_tap_iterator(e->v0, cookie,
-                                       client, nclient,
-                                       flags, userdata, nuserdata);
+        e->tap_iterator = e->pe.v1->get_tap_iterator(e->pe.v0, cookie,
+                                                     client, nclient,
+                                                     flags, userdata, nuserdata);
+        return e->tap_iterator ? bucket_tap_iterator_shim : NULL;
     } else {
         return NULL;
     }
