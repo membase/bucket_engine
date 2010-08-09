@@ -940,7 +940,9 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->errinfo(e->v0, cookie, buffer, buffsz);
+        return e->v1->errinfo
+            ? e->v1->errinfo(e->v0, cookie, buffer, buffsz)
+            : 0;
     } else {
         return 0;
     }
