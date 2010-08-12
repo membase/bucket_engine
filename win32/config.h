@@ -3,5 +3,6 @@
 #define CONFIG_H
 
 /* Empty for now... */
+#include "config_version.h"
 
 #endif

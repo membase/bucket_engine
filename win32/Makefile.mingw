@@ -1,52 +1,53 @@
 # Hard coded Makefile for windows
-
-TMP_DIR=./tmp
-
-TMP_VER=$(TMP_DIR)/version_num.tmp
-TMP_OS=$(TMP_DIR)/os.tmp
-
+#
+# Tip: If you want to be able to build 32bit and 64 bit versions
+#      on the same machine you can install libevent and pthreads in
+#      let's say: /usr/local32 and /usr/local64 and you should
+#      be able to compile with:
+#      make -f win32/Makefile.mingw LOCAL=/usr/local32
+#      make -f win32/Makefile.mingw LOCAL=/usr/local64 CC=x86_64-w64-mingw32-gcc
+#
 CC = gcc
 
-all: bucket_engine.so
+LOCAL=/usr/local
+LOCALLIB=-L${LOCAL}/lib
+LOCALINC=-I${LOCAL}/include
 
 MEMCACHED=../memcached
-MEMCACHED_HEADERS=${MEMCACHED}/include
 
-LIB=/lib
-INCLUDE=/include
+OBJDIR = .libs .libs/win32
+BINARIES= .libs/bucket_engine.so
+LIB=$(LOCALLIB) -L${MEMCACHED}/lib
+INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I. $(LOCALINC)
+GENHASH= ${MEMCACHED}/.libs/genhash.o
+GENFILES=.libs/config_version.h
+CPPFLAGS= -O2 ${INCLUDE} -Wall
 
-CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
- -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
- -I${INCLUDE} -I/include -Iwin32 -I/usr/local/include -I${MEMCACHED_HEADERS} \
- -DHAVE_CONFIG_H
+all: ${BINARIES}
 
-BUCKET_ENGINE_OBJS = bucket_engine.o win32/dlfcn.o
+CFLAGS = -std=gnu99 -DNDEBUG \
+           -fno-strict-aliasing -Wstrict-prototypes -Wmissing-prototypes \
+           -Wmissing-declarations -Wredundant-decls \
 
-bucket_engine.so: $(BUCKET_ENGINE_OBJS)
-	${LINK.c} -o bucket_engine.so -shared ${BUCKET_ENGINE_OBJS} \
-                    ${MEMCACHED}/.libs/genhash.o \
-              -L${LIB} -L/lib -lpthread -lmswsock -lws2_32
+BUCKET_ENGINE_SRC = \
+		bucket_engine.c \
+		win32/dlfcn.c
+BUCKET_ENGINE_OBJS = ${BUCKET_ENGINE_SRC:%.c=.libs/%.o}
 
-%.o: %.c
-	${COMPILE.c} -MD $< -o $@
+.libs/bucket_engine.so: ${OBJDIR} ${GENFILES} $(BUCKET_ENGINE_OBJS)
+	${LINK.cc} -o $@ -shared ${BUCKET_ENGINE_OBJS} ${GENHASH} \
+                  ${LIB} -lpthread -lws2_32
+
+.libs/config_version.h:
+	./win32/config.sh
+
+.libs .libs/win32:; -@mkdir $@
+
+.libs/%.o: %.c
+	${COMPILE.c} -MMD $< -o $@
 
 clean:
-	$(RM) ${BUCKET_ENGINE_OBJS} \
-              ${BUCKET_ENGINE_OBJS:.o=.d} \
-              bucket_engine.so
-
-version:
-	test -d $(TMP_DIR) || mkdir $(TMP_DIR)
-	git describe | sed s/-/_/g > $(TMP_VER)
-
-bdist: bucket_engine.so version
-	rm -f ./bucket_engine_*.tar.gz
-	rm -rf $(TMP_DIR)/bucket_engine
-	mkdir $(TMP_DIR)/bucket_engine
-	cp bucket_engine.so $(TMP_DIR)/bucket_engine
-	uname -s > $(TMP_OS)
-	tar --directory $(TMP_DIR) -czf bucket_engine_`cat $(TMP_VER)`-`cat $(TMP_OS)`.`uname -m`.tar.gz bucket_engine
-	echo created bucket_engine_`cat $(TMP_VER)`-`cat $(TMP_OS)`.`uname -m`.tar.gz
+	$(RM) ${BUCKET_ENGINE_OBJS} ${BINARIES} ${BUCKET_ENGINE_OBJS:.o=.d} \
+              ${GENFILES}
 
 -include ${BUCKET_ENGINE_OBJS:.o=.d}
-
