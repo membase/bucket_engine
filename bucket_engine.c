@@ -373,7 +373,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         return rv;
     }
 
-    peh->pe.v0 = load_engine(path, config, NULL);
+    peh->pe.v0 = load_engine(path, NULL, NULL);
 
     if (!peh->pe.v0) {
         release_handle(peh);
@@ -382,8 +382,18 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
         genhash_update(e->engines, bucket_name, strlen(bucket_name), peh, 0);
+
         // This was already verified, but we'll check it anyway
         assert(peh->pe.v0->interface == 1);
+        if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
+            peh->pe.v1->destroy(peh->pe.v0);
+            genhash_delete_all(e->engines, bucket_name, strlen(bucket_name));
+            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
+                    rv);
+            pthread_mutex_unlock(&e->engines_mutex);
+            return ENGINE_FAILED;
+        }
+
         rv = ENGINE_SUCCESS;
     } else {
         rv = ENGINE_KEY_EEXISTS;
@@ -489,19 +499,21 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
         return NULL;
     }
 
-    if (engine->interface == 1) {
-        ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
-        if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-            v1->destroy(engine);
-            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                    error);
+    if (config_str) {
+        if (engine->interface == 1) {
+            ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
+            if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
+                v1->destroy(engine);
+                fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
+                        error);
+                dlclose(handle);
+                return NULL;
+            }
+        } else {
+            fprintf(stderr, "Unsupported interface level\n");
             dlclose(handle);
             return NULL;
         }
-    } else {
-        fprintf(stderr, "Unsupported interface level\n");
-        dlclose(handle);
-        return NULL;
     }
 
     return engine;
@@ -615,10 +627,15 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         memset(&se->default_engine, 0, sizeof(se->default_engine));
         se->default_engine.refcount = 1;
         se->default_engine.valid = true;
-        se->default_engine.pe.v0 = load_engine(se->default_engine_path, "", NULL);
+        se->default_engine.pe.v0 = load_engine(se->default_engine_path, NULL, NULL);
 
         ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
         if (!dv1) {
+            return ENGINE_FAILED;
+        }
+
+        if (dv1->initialize(se->default_engine.pe.v0, config_str) != ENGINE_SUCCESS) {
+            dv1->destroy(se->default_engine.pe.v0);
             return ENGINE_FAILED;
         }
     }
