@@ -542,6 +542,7 @@ static void handle_connect(const void *cookie,
                            const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
+    e->upstream_server->core->store_engine_specific(cookie, NULL);
     proxied_engine_handle_t *peh = NULL;
     if (e->default_bucket_name != NULL) {
         // Assign a default named bucket (if there is one).
