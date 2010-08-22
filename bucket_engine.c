@@ -32,8 +32,12 @@ typedef struct proxied_engine_handle {
     bool                 wants_disconnects;
     EVENT_CALLBACK       cb;
     const void          *cb_data;
-    void                *engine_specific;
 } proxied_engine_handle_t;
+
+typedef struct engine_specific {
+    proxied_engine_handle_t *peh;
+    void                    *engine_specific;
+} engine_specific_t;
 
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
@@ -264,15 +268,16 @@ static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
 }
 
 static void bucket_store_engine_specific(const void *cookie, void *engine_data) {
-    proxied_engine_handle_t *peh = bucket_engine.upstream_server->core->get_engine_specific(cookie);
-    if (peh) {
-        peh->engine_specific = engine_data;
-    }
+    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    // There should *always* be an es here, because a bucket is trying
+    // to store data.  A bucket won't be there without an es.
+    assert(es);
+    es->engine_specific = engine_data;
 }
 
 static void* bucket_get_engine_specific(const void *cookie) {
-    proxied_engine_handle_t *peh = bucket_engine.upstream_server->core->get_engine_specific(cookie);
-    return peh ? peh->engine_specific : NULL;
+    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    return es ? es->engine_specific : NULL;
 }
 
 static bool bucket_register_extension(extension_type_t type,
@@ -409,14 +414,35 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
                                                          const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
-    proxied_engine_handle_t *peh = e->upstream_server->core->get_engine_specific(cookie);
-    if (peh != NULL && !peh->valid) {
-        release_handle(peh);
+    engine_specific_t *es = e->upstream_server->core->get_engine_specific(cookie);
+    if (!es) {
+        return NULL;
+    }
+    proxied_engine_handle_t *peh = es->peh;
+    if (peh && !peh->valid) {
+        release_handle(es->peh);
         e->upstream_server->core->store_engine_specific(cookie, NULL);
+        free(es);
         return NULL;
     }
 
     return peh ? peh : (e->default_engine.pe.v0 ? &e->default_engine : NULL);
+}
+
+static inline void set_engine_handle(ENGINE_HANDLE *h, const void *cookie,
+                                     proxied_engine_handle_t *peh) {
+    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    if (!es) {
+        es = calloc(1, sizeof(engine_specific_t));
+        assert(es);
+        struct bucket_engine *e = (struct bucket_engine*)h;
+        e->upstream_server->core->store_engine_specific(cookie, es);
+    }
+    // out with the old
+    release_handle(es->peh);
+    // In with the new
+    es->peh = peh;
+    retain_handle(es->peh);
 }
 
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
@@ -525,8 +551,10 @@ static void handle_disconnect(const void *cookie,
                               const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
-    proxied_engine_handle_t *peh =
+
+    engine_specific_t *es =
         e->upstream_server->core->get_engine_specific(cookie);
+    proxied_engine_handle_t *peh = es ? es->peh : NULL;
 
     if (peh && peh->wants_disconnects) {
         peh->cb(cookie, type, event_data, peh->cb_data);
@@ -534,6 +562,7 @@ static void handle_disconnect(const void *cookie,
 
     // Free up the engine we were using.
     release_handle(peh);
+    free(es);
 }
 
 static void handle_connect(const void *cookie,
@@ -542,7 +571,6 @@ static void handle_connect(const void *cookie,
                            const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
-    e->upstream_server->core->store_engine_specific(cookie, NULL);
     proxied_engine_handle_t *peh = NULL;
     if (e->default_bucket_name != NULL) {
         // Assign a default named bucket (if there is one).
@@ -562,8 +590,7 @@ static void handle_connect(const void *cookie,
         peh = e->default_engine.pe.v0 ? &e->default_engine : NULL;
     }
 
-    retain_handle(peh);
-    e->upstream_server->core->store_engine_specific(cookie, peh);
+    set_engine_handle((ENGINE_HANDLE*)e, cookie, peh);
 }
 
 static void handle_auth(const void *cookie,
@@ -571,9 +598,6 @@ static void handle_auth(const void *cookie,
                         const void *event_data,
                         const void *cb_data) {
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
-
-    // Free up the default engine (or user engine if re-auth).
-    release_handle(e->upstream_server->core->get_engine_specific(cookie));
 
     const auth_data_t *auth_data = (const auth_data_t*)event_data;
     proxied_engine_handle_t *peh = NULL;
@@ -587,8 +611,7 @@ static void handle_auth(const void *cookie,
         create_bucket(e, auth_data->username, e->default_engine_path,
                       auth_data->config ? auth_data->config : "", &peh);
     }
-    retain_handle(peh);
-    e->upstream_server->core->store_engine_specific(cookie, peh);
+    set_engine_handle((ENGINE_HANDLE*)e, cookie, peh);
 }
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
@@ -796,8 +819,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     if (e) {
         rc = e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
         struct bucket_engine *be = (struct bucket_engine*)handle;
-        proxied_engine_handle_t *peh =
-            be->upstream_server->core->get_engine_specific(cookie);
+        proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
         if (nkey == 0) {
             char statval[20];
             snprintf(statval, 20, "%d", peh->refcount - 1);
@@ -811,8 +833,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie) {
     struct bucket_engine *e = (struct bucket_engine*)handle;
-    proxied_engine_handle_t *peh =
-        e->upstream_server->core->get_engine_specific(cookie);
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
     if (peh != NULL && peh->valid) {
         return peh->stats;
     } else {
@@ -1203,9 +1224,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
         // Free up the currently held engine.
-        release_handle(e->upstream_server->core->get_engine_specific(cookie));
-        retain_handle(proxied);
-        e->upstream_server->core->store_engine_specific(cookie, proxied);
+        set_engine_handle(handle, cookie, proxied);
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Engine not found";
