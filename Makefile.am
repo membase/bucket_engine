@@ -23,7 +23,7 @@ testapp_LDFLAGS = $(common_LDFLAGS)
 
 pkgdata_SCRIPTS = management/create_bucket.py  management/delete_bucket.py  management/list_buckets.py  management/mc_bin_client.py  management/memcacheConstants.py management/collectd.py management/collectd_memcached_buckets.py management/types.db
 
-EXTRA_DIST = $(pkgdata_SCRIPTS)
+EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown
 
 test: all testapp
 	./testapp
