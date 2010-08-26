@@ -563,6 +563,7 @@ static void handle_disconnect(const void *cookie,
     // Free up the engine we were using.
     release_handle(peh);
     free(es);
+    e->upstream_server->core->store_engine_specific(cookie, NULL);
 }
 
 static void handle_connect(const void *cookie,
