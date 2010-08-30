@@ -933,9 +933,9 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
                                            uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        e->v1->tap_notify(e->v0, cookie, engine_specific,
-                          nengine, ttl, tap_flags, tap_event, tap_seqno,
-                          key, nkey, flags, exptime, cas, data, ndata, vbucket);
+        return e->v1->tap_notify(e->v0, cookie, engine_specific,
+                                 nengine, ttl, tap_flags, tap_event, tap_seqno,
+                                 key, nkey, flags, exptime, cas, data, ndata, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
