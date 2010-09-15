@@ -55,7 +55,7 @@ struct bucket_engine {
     SERVER_HANDLE_V1 server;
     SERVER_CALLBACK_API callback_api;
     SERVER_EXTENSION_API extension_api;
-    SERVER_CORE_API core_api;
+    SERVER_COOKIE_API cookie_api;
 
     union {
       engine_info engine_info;
@@ -268,7 +268,7 @@ static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
 }
 
 static void bucket_store_engine_specific(const void *cookie, void *engine_data) {
-    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     // There should *always* be an es here, because a bucket is trying
     // to store data.  A bucket won't be there without an es.
     assert(es);
@@ -276,7 +276,7 @@ static void bucket_store_engine_specific(const void *cookie, void *engine_data) 
 }
 
 static void* bucket_get_engine_specific(const void *cookie) {
-    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     return es ? es->engine_specific : NULL;
 }
 
@@ -319,10 +319,10 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     bucket_engine.server.extension = &bucket_engine.extension_api;
 
     /* Override engine specific */
-    bucket_engine.core_api = *bucket_engine.upstream_server->core;
-    bucket_engine.server.core = &bucket_engine.core_api;
-    bucket_engine.server.core->store_engine_specific = bucket_store_engine_specific;
-    bucket_engine.server.core->get_engine_specific = bucket_get_engine_specific;
+    bucket_engine.cookie_api = *bucket_engine.upstream_server->cookie;
+    bucket_engine.server.cookie = &bucket_engine.cookie_api;
+    bucket_engine.server.cookie->store_engine_specific = bucket_store_engine_specific;
+    bucket_engine.server.cookie->get_engine_specific = bucket_get_engine_specific;
 
     return ENGINE_SUCCESS;
 }
@@ -414,14 +414,14 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
                                                          const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
-    engine_specific_t *es = e->upstream_server->core->get_engine_specific(cookie);
+    engine_specific_t *es = e->upstream_server->cookie->get_engine_specific(cookie);
     if (!es) {
         return NULL;
     }
     proxied_engine_handle_t *peh = es->peh;
     if (peh && !peh->valid) {
         release_handle(es->peh);
-        e->upstream_server->core->store_engine_specific(cookie, NULL);
+        e->upstream_server->cookie->store_engine_specific(cookie, NULL);
         free(es);
         return NULL;
     }
@@ -431,12 +431,12 @@ static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
 
 static inline void set_engine_handle(ENGINE_HANDLE *h, const void *cookie,
                                      proxied_engine_handle_t *peh) {
-    engine_specific_t *es = bucket_engine.upstream_server->core->get_engine_specific(cookie);
+    engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     if (!es) {
         es = calloc(1, sizeof(engine_specific_t));
         assert(es);
         struct bucket_engine *e = (struct bucket_engine*)h;
-        e->upstream_server->core->store_engine_specific(cookie, es);
+        e->upstream_server->cookie->store_engine_specific(cookie, es);
     }
     // out with the old
     release_handle(es->peh);
@@ -553,7 +553,7 @@ static void handle_disconnect(const void *cookie,
 
 
     engine_specific_t *es =
-        e->upstream_server->core->get_engine_specific(cookie);
+        e->upstream_server->cookie->get_engine_specific(cookie);
     proxied_engine_handle_t *peh = es ? es->peh : NULL;
 
     if (peh && peh->wants_disconnects) {
@@ -563,7 +563,7 @@ static void handle_disconnect(const void *cookie,
     // Free up the engine we were using.
     release_handle(peh);
     free(es);
-    e->upstream_server->core->store_engine_specific(cookie, NULL);
+    e->upstream_server->cookie->store_engine_specific(cookie, NULL);
 }
 
 static void handle_connect(const void *cookie,
@@ -1164,7 +1164,7 @@ static bool authorized(ENGINE_HANDLE* handle,
     bool rv = false;
     if (e->admin_user) {
         auth_data_t data = {.username = 0, .config = 0};
-        e->upstream_server->core->get_auth_data(cookie, &data);
+        e->upstream_server->cookie->get_auth_data(cookie, &data);
         if (data.username) {
             rv = strcmp(data.username, e->admin_user) == 0;
         }
