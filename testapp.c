@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include "bucket_engine.h"
 
@@ -769,6 +770,84 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+struct handle_pair {
+    ENGINE_HANDLE *h;
+    ENGINE_HANDLE_V1 *h1;
+};
+
+static void* conc_del_bucket_thread(void *arg) {
+    struct handle_pair *hp = arg;
+
+    bool keepGoing = true;
+    while (keepGoing) {
+        static const char *key = "somekey";
+        static const char *value = "the value";
+        static size_t klen = 7;
+        static size_t vlen = 9;
+
+        void *cokie = mk_conn("someuser", NULL);
+
+        item *item;
+        ENGINE_ERROR_CODE rv = hp->h1->allocate(hp->h, cokie, &item,
+                                                key, klen,
+                                                vlen, 9258, 3600);
+        keepGoing = rv != ENGINE_DISCONNECT;
+
+        if (rv == ENGINE_SUCCESS) {
+            hp->h1->release(hp->h, cokie, item);
+        }
+
+        disconnect(cokie);
+    }
+    return NULL;
+}
+
+static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
+                                                      ENGINE_HANDLE_V1 *h1) {
+    const void *adm_cookie = mk_conn("admin", NULL);
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_create_bucket_pkt("someuser", ENGINE_PATH, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    const int n_threads = 8;
+    pthread_t threads[n_threads];
+    struct handle_pair hp = {.h = h, .h1 = h1};
+
+    for (int i = 0; i < n_threads; i++) {
+        int r = pthread_create(&threads[i], NULL, conc_del_bucket_thread, &hp);
+        assert(r == 0);
+    }
+
+    usleep(1000);
+
+    pkt = create_packet(DELETE_BUCKET, "someuser", "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+
+    const void *other_cookie = mk_conn("someuser", NULL);
+    item *item;
+    const char* key = "testkey";
+    const char* value = "testvalue";
+    rv = h1->allocate(h, other_cookie, &item,
+                      key, strlen(key),
+                      strlen(value), 9258, 3600);
+    assert(rv == ENGINE_DISCONNECT);
+
+    for (int i = 0; i < n_threads; i++) {
+        void *trv = NULL;
+        int r = pthread_join(threads[i], &trv);
+        assert(r == 0);
+    }
+
+    return SUCCESS;
+}
+
 static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -1177,6 +1256,8 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_NO_DEF},
         {"bucket name verification", test_bucket_name_validation},
         {"delete bucket", test_delete_bucket,
+         DEFAULT_CONFIG_NO_DEF},
+        {"concurrent access delete bucket", test_delete_bucket_concurrent,
          DEFAULT_CONFIG_NO_DEF},
         {"expand bucket", test_expand_bucket},
         {"expand missing bucket", test_expand_missing_bucket},
