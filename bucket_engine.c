@@ -392,6 +392,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     if (!peh->pe.v0) {
         release_handle(peh);
+        pthread_mutex_unlock(&e->engines_mutex);
         return rv;
     }
 
