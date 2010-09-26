@@ -780,6 +780,12 @@ static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
 
+    pkt = create_create_bucket_pkt("", ENGINE_PATH, "");
+    rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_NOT_STORED);
+
     return SUCCESS;
 }
 
