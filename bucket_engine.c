@@ -50,6 +50,7 @@ struct bucket_engine {
     char *default_bucket_name;
     proxied_engine_handle_t default_engine;
     pthread_mutex_t engines_mutex;
+    pthread_mutex_t retention_mutex;
     genhash_t *engines;
     GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 server;
@@ -328,7 +329,8 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
 }
 
 static void release_handle(proxied_engine_handle_t *peh) {
-    if (peh) {
+    if (peh && pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
+        assert(peh->refcount > 0);
         if (--peh->refcount == 0) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
@@ -336,15 +338,19 @@ static void release_handle(proxied_engine_handle_t *peh) {
             bucket_engine.upstream_server->stat->release_stats(peh->stats);
             free(peh);
         }
+        pthread_mutex_unlock(&bucket_engine.retention_mutex);
     }
 }
 
 static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     proxied_engine_handle_t *rv = NULL;
-    if (peh && peh->valid) {
-        ++peh->refcount;
-        assert(&peh->refcount > 0);
-        rv = peh;
+    if (peh && pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
+        if (peh->valid) {
+            ++peh->refcount;
+            assert(peh->refcount > 0);
+            rv = peh;
+        }
+        pthread_mutex_unlock(&bucket_engine.retention_mutex);
     }
     return rv;
 }
@@ -476,7 +482,11 @@ static void* hash_strdup(const void *k, size_t nkey) {
 
 static void* refcount_dup(const void* ob, size_t vlen) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
-    peh->refcount++;
+    assert(peh);
+    if (pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
+        peh->refcount++;
+        pthread_mutex_unlock(&bucket_engine.retention_mutex);
+    }
     return (void*)ob;
 }
 
@@ -626,6 +636,11 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
 
     if (pthread_mutex_init(&se->engines_mutex, NULL) != 0) {
         fprintf(stderr, "Error initializing mutex for bucket engine.\n");
+        return ENGINE_FAILED;
+    }
+
+    if (pthread_mutex_init(&se->retention_mutex, NULL) != 0) {
+        fprintf(stderr, "Error initializing retention mutex for bucket engine.\n");
         return ENGINE_FAILED;
     }
 
