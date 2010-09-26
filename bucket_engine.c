@@ -339,10 +339,14 @@ static void release_handle(proxied_engine_handle_t *peh) {
     }
 }
 
-static void retain_handle(proxied_engine_handle_t *peh) {
-    if (peh) {
-        peh->refcount++;
+static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
+    proxied_engine_handle_t *rv = NULL;
+    if (peh && peh->valid) {
+        ++peh->refcount;
+        assert(&peh->refcount > 0);
+        rv = peh;
     }
+    return rv;
 }
 
 static bool has_valid_bucket_name(const char *n) {
@@ -441,8 +445,7 @@ static inline void set_engine_handle(ENGINE_HANDLE *h, const void *cookie,
     // out with the old
     release_handle(es->peh);
     // In with the new
-    es->peh = peh;
-    retain_handle(es->peh);
+    es->peh = retain_handle(peh);
 }
 
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
