@@ -45,6 +45,11 @@ if test "x$enable_coverage" = "xyes"; then
          PROFILER_FLAGS=-xprofile=tcov
       fi
    fi
+else
+    if test "$GCC" = "yes"
+    then
+        CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+    fi
 fi
 AC_SUBST(PROFILER_FLAGS)
 AC_SUBST(PROFILER_LDFLAGS)

@@ -111,7 +111,6 @@ static const char* item_get_key(const item* item);
 static void item_set_cas(ENGINE_HANDLE* handle, const void *cookie,
                          item* item, uint64_t val);
 static uint64_t item_get_cas(const item* item);
-static uint8_t item_get_clsid(const item* item);
 
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
                           const item* item, item_info *item_info);
@@ -382,7 +381,7 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
     }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", *result);
+    snprintf(buf, sizeof(buf), "%"PRIu64, *result);
     ENGINE_ERROR_CODE rv;
     if((rv = mock_item_allocate(handle, cookie, &item_out,
                                 key, nkey,
@@ -442,11 +441,6 @@ static char* item_get_data(const item* item)
 {
     const mock_item* it = (mock_item*)item;
     return ((char*)item_get_key(item)) + it->nkey;
-}
-
-static uint8_t item_get_clsid(const item* item)
-{
-    return 0;
 }
 
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,

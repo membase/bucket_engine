@@ -838,7 +838,6 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 
     if (e) {
         rc = e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
-        struct bucket_engine *be = (struct bucket_engine*)handle;
         proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
         if (nkey == 0) {
             char statval[20];
@@ -852,7 +851,6 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie) {
-    struct bucket_engine *e = (struct bucket_engine*)handle;
     proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
     if (peh != NULL && peh->valid) {
         return peh->stats;
@@ -1043,7 +1041,7 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
 
 #define EXTRACT_KEY(req, out)                                       \
     char keyz[ntohs(req->message.header.request.keylen) + 1];       \
-    memcpy(keyz, ((void*)request) + sizeof(req->message.header),    \
+    memcpy(keyz, ((char*)request) + sizeof(req->message.header),    \
            ntohs(req->message.header.request.keylen));              \
     keyz[ntohs(req->message.header.request.keylen)] = 0x00;
 
@@ -1061,11 +1059,11 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
         - ntohs(breq->message.header.request.keylen);
     assert(bodylen < (1 << 16)); // 64k ought to be enough for anybody
     char spec[bodylen + 1];
-    memcpy(spec, ((void*)request) + sizeof(breq->message.header)
+    memcpy(spec, ((char*)request) + sizeof(breq->message.header)
            + ntohs(breq->message.header.request.keylen), bodylen);
     spec[bodylen] = 0x00;
 
-    if (!spec || (strlen(spec) == 0)) {
+    if (spec[0] == 0) {
         const char *msg = "Invalid request.";
         response(msg, strlen(msg), "", 0, "", 0, 0,
                  PROTOCOL_BINARY_RESPONSE_EINVAL, 0, cookie);

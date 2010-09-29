@@ -204,11 +204,11 @@ static SERVER_HANDLE_V1 *get_server_api(void)
     return &rv;
 }
 
-bool add_response(const void *key, uint16_t keylen,
-                  const void *ext, uint8_t extlen,
-                  const void *body, uint32_t bodylen,
-                  uint8_t datatype, uint16_t status,
-                  uint64_t cas, const void *cookie) {
+static bool add_response(const void *key, uint16_t keylen,
+                         const void *ext, uint8_t extlen,
+                         const void *body, uint32_t bodylen,
+                         uint8_t datatype, uint16_t status,
+                         uint64_t cas, const void *cookie) {
     last_status = status;
     if (last_body) {
         free(last_body);
@@ -610,9 +610,9 @@ static void* create_packet4(uint8_t opcode, const char *key, const char *val,
     req->request.opcode = opcode;
     req->request.bodylen = htonl(strlen(key) + vlen);
     req->request.keylen = htons(strlen(key));
-    memcpy(pkt_raw + sizeof(protocol_binary_request_header),
+    memcpy((char*)pkt_raw + sizeof(protocol_binary_request_header),
            key, strlen(key));
-    memcpy(pkt_raw + sizeof(protocol_binary_request_header) + strlen(key),
+    memcpy((char*)pkt_raw + sizeof(protocol_binary_request_header) + strlen(key),
            val, vlen);
     return pkt_raw;
 }
@@ -781,7 +781,6 @@ static void* conc_del_bucket_thread(void *arg) {
     bool keepGoing = true;
     while (keepGoing) {
         static const char *key = "somekey";
-        static const char *value = "the value";
         static size_t klen = 7;
         static size_t vlen = 9;
 
@@ -939,8 +938,8 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
     assert(last_status == 0);
 
     // Now verify the body looks alright.
-    assert(strncmp(last_body, "bucket1 bucket2", 15) == 0
-           || strncmp(last_body, "bucket2 bucket1", 15) == 0);
+    assert(memcmp(last_body, "bucket1 bucket2", 15) == 0
+           || memcmp(last_body, "bucket2 bucket1", 15) == 0);
 
     return SUCCESS;
 }
@@ -1077,7 +1076,7 @@ static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
 
 static enum test_result test_auto_config(ENGINE_HANDLE *h,
                                          ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL, *fetched_item;
+    item *item = NULL;
     const void *cookie = mk_conn("someuser", MOCK_CONFIG_NO_ALLOC);
     char *key = "somekey";
     char *value = "some value";
@@ -1194,7 +1193,7 @@ static enum test_result run_test(struct test test) {
         if (pid == 0) {
 #endif
             /* Start the engines and go */
-            ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ?: DEFAULT_CONFIG);
+            ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ? test.cfg : DEFAULT_CONFIG);
             ret = test.tfun((ENGINE_HANDLE*)h, h);
             disconnect_all_connections(connstructs);
             destroy_event_handlers();
