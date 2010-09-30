@@ -22,11 +22,18 @@ typedef union proxied_engine {
     ENGINE_HANDLE_V1 *v1;
 } proxied_engine_t;
 
+typedef enum {
+    STATE_NULL,
+    STATE_STARTING,
+    STATE_RUNNING,
+    STATE_STOPPING
+} bucket_state_t;
+
 typedef struct proxied_engine_handle {
     proxied_engine_t     pe;
     struct thread_stats *stats;
     int                  refcount;
-    bool                 valid;
+    bucket_state_t       state;
     TAP_ITERATOR         tap_iterator;
     /* ON_DISCONNECT handling */
     bool                 wants_disconnects;
@@ -345,7 +352,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
 static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     proxied_engine_handle_t *rv = NULL;
     if (peh && pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
-        if (peh->valid) {
+        if (peh->state == STATE_STARTING || peh->state == STATE_RUNNING) {
             ++peh->refcount;
             assert(peh->refcount > 0);
             rv = peh;
@@ -379,7 +386,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->stats = e->upstream_server->stat->new_stats();
     assert(peh->stats);
     peh->refcount = 1;
-    peh->valid = true;
+    peh->state = STATE_RUNNING;
 
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -430,7 +437,7 @@ static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
         return NULL;
     }
     proxied_engine_handle_t *peh = es->peh;
-    if (peh && !peh->valid) {
+    if (peh && !(peh->state == STATE_RUNNING || peh->state == STATE_STARTING)) {
         release_handle(es->peh);
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
         free(es);
@@ -493,7 +500,7 @@ static void* refcount_dup(const void* ob, size_t vlen) {
 
 static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
-    peh->valid = false;
+    peh->state = STATE_NULL;
     release_handle(peh);
 }
 
@@ -670,7 +677,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     if (se->has_default) {
         memset(&se->default_engine, 0, sizeof(se->default_engine));
         se->default_engine.refcount = 1;
-        se->default_engine.valid = true;
+        se->default_engine.state = STATE_RUNNING;
         se->default_engine.pe.v0 = load_engine(se->default_engine_path, NULL, NULL);
 
         ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
@@ -852,7 +859,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie) {
     proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
-    if (peh != NULL && peh->valid) {
+    if (peh != NULL && peh->state == STATE_RUNNING) {
         return peh->stats;
     } else {
         return NULL;
