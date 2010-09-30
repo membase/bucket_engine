@@ -223,6 +223,18 @@ struct bucket_engine bucket_engine = {
 
 /* Internal utility functions */
 
+static const char * bucket_state_name(bucket_state_t s) {
+    const char * rv = NULL;
+    switch(s) {
+    case STATE_NULL: rv = "NULL"; break;
+    case STATE_STARTING: rv = "starting"; break;
+    case STATE_RUNNING: rv = "running"; break;
+    case STATE_STOPPING: rv = "stopping"; break;
+    }
+    assert(rv);
+    return rv;
+}
+
 static const char *get_default_bucket_config() {
     const char *config = getenv("MEMCACHED_DEFAULT_BUCKET_CONFIG");
     return config != NULL ? config : "";
@@ -412,7 +424,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
                                        const char *bucket_name,
                                        const char *path,
                                        const char *config,
-                                       proxied_engine_handle_t **e_out) {
+                                       proxied_engine_handle_t **e_out,
+                                       char *msg, size_t msglen) {
 
     if (!has_valid_bucket_name(bucket_name)) {
         return ENGINE_EINVAL;
@@ -432,6 +445,9 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     if (pthread_mutex_lock(&e->engines_mutex) != 0) {
         release_handle(peh);
+        if (msg) {
+            snprintf(msg, msglen - 1, "Failed to acquire engines mutex.");
+        }
         return rv;
     }
 
@@ -440,10 +456,16 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     if (!peh->pe.v0) {
         release_handle(peh);
         pthread_mutex_unlock(&e->engines_mutex);
+        if (msg) {
+            snprintf(msg, msglen - 1, "Failed to load engine.");
+        }
         return rv;
     }
 
-    if (genhash_find(e->engines, bucket_name, strlen(bucket_name)) == NULL) {
+    proxied_engine_handle_t *tmppeh = genhash_find(e->engines,
+                                                   bucket_name,
+                                                   strlen(bucket_name));
+    if (tmppeh == NULL) {
         genhash_update(e->engines, bucket_name, strlen(bucket_name), peh, 0);
 
         // This was already verified, but we'll check it anyway
@@ -451,14 +473,20 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
             peh->pe.v1->destroy(peh->pe.v0);
             genhash_delete_all(e->engines, bucket_name, strlen(bucket_name));
-            fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                    rv);
+            if (msg) {
+                snprintf(msg, msglen - 1,
+                         "Failed to initialize instance. Error code: %d\n", rv);
+            }
             pthread_mutex_unlock(&e->engines_mutex);
             return ENGINE_FAILED;
         }
 
         rv = ENGINE_SUCCESS;
     } else {
+        if (msg) {
+            snprintf(msg, msglen - 1,
+                     "Bucket exists: %s", bucket_state_name(tmppeh->state));
+        }
         rv = ENGINE_KEY_EEXISTS;
     }
 
@@ -647,7 +675,7 @@ static void handle_connect(const void *cookie,
             // XXX:  Need default config.
             create_bucket(e, e->default_bucket_name,
                           e->default_engine_path,
-                          get_default_bucket_config(), &peh);
+                          get_default_bucket_config(), &peh, NULL, 0);
         }
     } else {
         // Assign the default bucket (if there is one).
@@ -673,7 +701,7 @@ static void handle_auth(const void *cookie,
     }
     if (!peh && e->auto_create) {
         create_bucket(e, auth_data->username, e->default_engine_path,
-                      auth_data->config ? auth_data->config : "", &peh);
+                      auth_data->config ? auth_data->config : "", &peh, NULL, 0);
     }
     set_engine_handle((ENGINE_HANDLE*)e, cookie, peh);
 }
@@ -881,18 +909,6 @@ struct stat_context {
     ADD_STAT add_stat;
     const void *cookie;
 };
-
-static const char * bucket_state_name(bucket_state_t s) {
-    const char * rv = NULL;
-    switch(s) {
-    case STATE_NULL: rv = "NULL"; break;
-    case STATE_STARTING: rv = "starting"; break;
-    case STATE_RUNNING: rv = "running"; break;
-    case STATE_STOPPING: rv = "stopping"; break;
-    }
-    assert(rv);
-    return rv;
-}
 
 static void stat_ht_builder(const void *key, size_t nkey,
                             const void *val, size_t nval,
@@ -1176,10 +1192,13 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
         config = spec + strlen(spec)+1;
     }
 
+    const size_t msglen = 1024;
+    char msg[msglen];
     proxied_engine_handle_t *peh = NULL;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec, config ? config : "", &peh);
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec,
+                                          config ? config : "",
+                                          &peh, msg, msglen);
 
-    const char *msg = "";
     protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
     switch(ret) {
@@ -1187,11 +1206,9 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
         // Defaults as above.
         break;
     case ENGINE_KEY_EEXISTS:
-        msg = "Bucket exists";
         rc = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         break;
     default:
-        msg = "Error creating bucket";
         rc = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
     }
 
