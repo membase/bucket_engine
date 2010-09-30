@@ -30,6 +30,8 @@ typedef enum {
 } bucket_state_t;
 
 typedef struct proxied_engine_handle {
+    const char          *name;
+    size_t               name_len;
     proxied_engine_t     pe;
     struct thread_stats *stats;
     int                  refcount;
@@ -337,15 +339,49 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     return ENGINE_SUCCESS;
 }
 
+static void *engine_destroyer(void *arg) {
+    proxied_engine_handle_t *peh = (proxied_engine_handle_t*)arg;
+    assert(peh);
+    assert(peh->state == STATE_STOPPING);
+
+    peh->pe.v1->destroy(peh->pe.v0);
+    bucket_engine.upstream_server->stat->release_stats(peh->stats);
+
+    int locked = pthread_mutex_lock(&bucket_engine.retention_mutex) == 0;
+    assert(locked);
+
+    int upd = genhash_delete_all(bucket_engine.engines,
+                                 peh->name, peh->name_len);
+    assert(upd == 1);
+    assert(genhash_find(bucket_engine.engines,
+                        peh->name, peh->name_len) == NULL);
+
+    pthread_mutex_unlock(&bucket_engine.retention_mutex);
+    free((void*)peh->name);
+    free(peh);
+
+    return NULL;
+}
+
 static void release_handle(proxied_engine_handle_t *peh) {
     if (peh && pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
+
         assert(peh->refcount > 0);
-        if (--peh->refcount == 0) {
+        if (--peh->refcount == 0 && peh->state == STATE_STOPPING) {
             // We should never free the default engine.
             assert(peh != &bucket_engine.default_engine);
-            peh->pe.v1->destroy(peh->pe.v0);
-            bucket_engine.upstream_server->stat->release_stats(peh->stats);
-            free(peh);
+
+            pthread_attr_t attr;
+            if (pthread_attr_init(&attr) != 0 ||
+                pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0) {
+                abort();
+            }
+
+            pthread_t tid;
+            if (pthread_create(&tid, &attr, engine_destroyer, peh) != 0) {
+                abort();
+            }
+            pthread_attr_destroy(&attr);
         }
         pthread_mutex_unlock(&bucket_engine.retention_mutex);
     }
@@ -388,6 +424,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->stats = e->upstream_server->stat->new_stats();
     assert(peh->stats);
     peh->refcount = 1;
+    peh->name = strdup(bucket_name);
+    peh->name_len = strlen(peh->name);
     peh->state = STATE_RUNNING;
 
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
@@ -449,8 +487,9 @@ static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
     return peh ? peh : (e->default_engine.pe.v0 ? &e->default_engine : NULL);
 }
 
-static inline void set_engine_handle(ENGINE_HANDLE *h, const void *cookie,
-                                     proxied_engine_handle_t *peh) {
+static inline proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
+                                                         const void *cookie,
+                                                         proxied_engine_handle_t *peh) {
     engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     if (!es) {
         es = calloc(1, sizeof(engine_specific_t));
@@ -462,12 +501,13 @@ static inline void set_engine_handle(ENGINE_HANDLE *h, const void *cookie,
     release_handle(es->peh);
     // In with the new
     es->peh = retain_handle(peh);
+    return es->peh;
 }
 
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     proxied_engine_handle_t *peh = get_engine_handle(h, cookie);
-    return peh ? &peh->pe : NULL;
+    return (peh && peh->state == STATE_RUNNING) ? &peh->pe : NULL;
 }
 
 static inline struct bucket_engine* get_handle(ENGINE_HANDLE* handle) {
@@ -502,8 +542,8 @@ static void* refcount_dup(const void* ob, size_t vlen) {
 
 static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
+    assert(peh);
     peh->state = STATE_NULL;
-    release_handle(peh);
 }
 
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
@@ -1170,16 +1210,21 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    int upd = 0;
+    bool found = false;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        upd = genhash_delete_all(e->engines, keyz, strlen(keyz));
-        assert(genhash_find(e->engines, keyz, strlen(keyz)) == NULL);
+        proxied_engine_handle_t *peh = genhash_find(e->engines, keyz,
+                                                    strlen(keyz));
+        if (peh && peh->state == STATE_RUNNING) {
+            found = true;
+            peh->state = STATE_STOPPING;
+            release_handle(peh);
+        }
         pthread_mutex_unlock(&e->engines_mutex);
     } else {
         return ENGINE_FAILED;
     }
 
-    if (upd > 0) {
+    if (found) {
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Not found.";
@@ -1261,9 +1306,9 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
-    proxied_engine_t *proxied = NULL;
+    proxied_engine_handle_t *proxied = NULL;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        proxied = genhash_find(e->engines, keyz, strlen(keyz));
+        proxied = retain_handle(genhash_find(e->engines, keyz, strlen(keyz)));
         pthread_mutex_unlock(&e->engines_mutex);
     } else {
         return ENGINE_FAILED;
@@ -1271,7 +1316,8 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
-        rv = proxied->v1->unknown_command(handle, cookie, request, response);
+        rv = proxied->pe.v1->unknown_command(handle, cookie, request, response);
+        release_handle(proxied);
     } else {
         const char *msg = "Engine not found";
         response(msg, strlen(msg),
@@ -1295,7 +1341,9 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 
     proxied_engine_handle_t *proxied = NULL;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
-        proxied = genhash_find(e->engines, keyz, strlen(keyz));
+        // Free up the currently held engine.
+        proxied = set_engine_handle(handle, cookie,
+                                    genhash_find(e->engines, keyz, strlen(keyz)));
         pthread_mutex_unlock(&e->engines_mutex);
     } else {
         return ENGINE_FAILED;
@@ -1303,8 +1351,6 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
-        // Free up the currently held engine.
-        set_engine_handle(handle, cookie, proxied);
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Engine not found";
