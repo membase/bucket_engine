@@ -12,6 +12,8 @@
 #include <errno.h>
 #include <pthread.h>
 
+#include <memcached/genhash.h>
+
 #include "bucket_engine.h"
 
 #include "memcached/engine.h"
@@ -32,6 +34,8 @@
 protocol_binary_response_status last_status = 0;
 char *last_key = NULL;
 char *last_body = NULL;
+
+genhash_t* stats_hash;
 
 enum test_result {
     SUCCESS = 11,
@@ -1061,6 +1065,26 @@ static enum test_result test_select(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static void add_stats(const char *key, const uint16_t klen,
+                      const char *val, const uint32_t vlen,
+                      const void *cookie) {
+    genhash_update(stats_hash, key, klen, val, vlen);
+}
+
+static enum test_result test_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    rv = h1->get_stats(h, mk_conn("user", NULL), NULL, 0, add_stats);
+    assert(rv == ENGINE_SUCCESS);
+    assert(genhash_size(stats_hash) == 1);
+
+    assert(memcmp("0",
+                  genhash_find(stats_hash, "bucket_conns", strlen("bucket_conns")),
+                  1) == 0);
+
+    return SUCCESS;
+}
+
 static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -1184,6 +1208,17 @@ static void destroy_event_handlers() {
     }
 }
 
+static int hash_key_eq(const void *key, size_t nk,
+                       const void *other, size_t no) {
+    return nk == no && (memcmp(key, other, nk) == 0);
+}
+
+static void* hash_strdup(const void *x, size_t n) {
+    char *rv = calloc(n + 1, sizeof(char));
+    assert(rv);
+    return memcpy(rv, x, n);
+}
+
 static enum test_result run_test(struct test test) {
     enum test_result ret = PENDING;
     if (test.tfun != NULL) {
@@ -1192,6 +1227,17 @@ static enum test_result run_test(struct test test) {
         pid_t pid = fork();
         if (pid == 0) {
 #endif
+            /* Initialize the stats collection thingy */
+            struct hash_ops stats_hash_ops = {
+                .hashfunc = genhash_string_hash,
+                .hasheq = hash_key_eq,
+                .dupKey = hash_strdup,
+                .dupValue = hash_strdup,
+                .freeKey = free,
+                .freeValue = free
+            };
+            stats_hash = genhash_init(25, stats_hash_ops);
+
             /* Start the engines and go */
             ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ? test.cfg : DEFAULT_CONFIG);
             ret = test.tfun((ENGINE_HANDLE*)h, h);
@@ -1199,6 +1245,7 @@ static enum test_result run_test(struct test test) {
             destroy_event_handlers();
             connstructs = NULL;
             h->destroy((ENGINE_HANDLE*)h);
+            genhash_free(stats_hash);
 #ifndef USE_GCOV
             exit((int)ret);
         } else if (pid == (pid_t)-1) {
@@ -1266,7 +1313,7 @@ int main(int argc, char **argv) {
         {"fail to select a bucket when not admin", test_select_no_admin},
         {"select a bucket as admin", test_select, DEFAULT_CONFIG_AC},
         {"fail to select non-existent bucket as admin", test_select_no_bucket},
-        {"stats call"},
+        {"stats call", test_stats},
         {"release call"},
         {"unknown call delegation", test_unknown_call},
         {"unknown call delegation (no bucket)", test_unknown_call_no_bucket,
