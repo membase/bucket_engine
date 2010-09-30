@@ -181,6 +181,8 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
 static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
                                   CREATE_INSTANCE *create_out);
 
+static bool authorized(ENGINE_HANDLE* handle, const void* cookie);
+
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -835,11 +837,64 @@ static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+struct stat_context {
+    ADD_STAT add_stat;
+    const void *cookie;
+};
+
+static const char * bucket_state_name(bucket_state_t s) {
+    const char * rv = NULL;
+    switch(s) {
+    case STATE_NULL: rv = "NULL"; break;
+    case STATE_STARTING: rv = "starting"; break;
+    case STATE_RUNNING: rv = "running"; break;
+    case STATE_STOPPING: rv = "stopping"; break;
+    }
+    assert(rv);
+    return rv;
+}
+
+static void stat_ht_builder(const void *key, size_t nkey,
+                            const void *val, size_t nval,
+                            void *arg) {
+    assert(arg);
+    struct stat_context *ctx = (struct stat_context*)arg;
+    proxied_engine_handle_t *bucket = (proxied_engine_handle_t*)val;
+    const char * const bucketState = bucket_state_name(bucket->state);
+    ctx->add_stat(key, nkey, bucketState, strlen(bucketState),
+                  ctx->cookie);
+}
+
+static ENGINE_ERROR_CODE get_bucket_stats(ENGINE_HANDLE* handle,
+                                          const void *cookie,
+                                          ADD_STAT add_stat) {
+
+    if (!authorized(handle, cookie)) {
+        return ENGINE_FAILED;
+    }
+
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    struct stat_context sctx = {.add_stat = add_stat, .cookie = cookie};
+
+    if (pthread_mutex_lock(&e->engines_mutex) == 0) {
+        genhash_iter(e->engines, stat_ht_builder, &sctx);
+        pthread_mutex_unlock(&e->engines_mutex);
+        return ENGINE_SUCCESS;
+    } else {
+        return ENGINE_FAILED;
+    }
+}
+
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const char* stat_key,
                                           int nkey,
                                           ADD_STAT add_stat) {
+    // Intercept bucket stats.
+    if (nkey == strlen("bucket") && memcmp("bucket", stat_key, nkey) == 0) {
+        return get_bucket_stats(handle, cookie, add_stat);
+    }
+
     ENGINE_ERROR_CODE rc = ENGINE_DISCONNECT;
     proxied_engine_t *e = get_engine(handle, cookie);
 

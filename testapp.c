@@ -1085,6 +1085,34 @@ static enum test_result test_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return SUCCESS;
 }
 
+static enum test_result test_stats_bucket(ENGINE_HANDLE *h,
+                                          ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    const void *adm_cookie = mk_conn("admin", NULL);
+
+    void *pkt = create_create_bucket_pkt("someuser", ENGINE_PATH, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    rv = h1->get_stats(h, mk_conn("user", NULL), "bucket", 6, add_stats);
+    assert(rv == ENGINE_FAILED);
+    assert(genhash_size(stats_hash) == 0);
+
+    rv = h1->get_stats(h, adm_cookie, "bucket", 6, add_stats);
+    assert(rv == ENGINE_SUCCESS);
+    assert(genhash_size(stats_hash) == 1);
+
+    assert(NULL == genhash_find(stats_hash, "bucket_conns", strlen("bucket_conns")));
+
+    assert(memcmp("running",
+                  genhash_find(stats_hash, "someuser", strlen("someuser")),
+                  7) == 0);
+
+    return SUCCESS;
+}
+
 static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -1314,6 +1342,7 @@ int main(int argc, char **argv) {
         {"select a bucket as admin", test_select, DEFAULT_CONFIG_AC},
         {"fail to select non-existent bucket as admin", test_select_no_bucket},
         {"stats call", test_stats},
+        {"stats bucket call", test_stats_bucket},
         {"release call"},
         {"unknown call delegation", test_unknown_call},
         {"unknown call delegation (no bucket)", test_unknown_call_no_bucket,
