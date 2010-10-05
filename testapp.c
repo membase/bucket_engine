@@ -979,7 +979,7 @@ static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
     const char *exp = "Engine not found";
-    assert(memcmp(last_key, exp, strlen(exp)) == 0);
+    assert(memcmp(last_body, exp, strlen(exp)) == 0);
 
     return SUCCESS;
 }

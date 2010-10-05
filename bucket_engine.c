@@ -1212,7 +1212,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
         rc = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
     }
 
-    response(msg, strlen(msg), "", 0, "", 0, 0, rc, 0, cookie);
+    response(NULL, 0, NULL, 0, msg, strlen(msg), 0, rc, 0, cookie);
 
     return ENGINE_SUCCESS;
 }
@@ -1245,8 +1245,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Not found.";
-        response(msg, strlen(msg),
-                 "", 0, "", 0,
+        response(NULL, 0, NULL, 0, msg, strlen(msg),
                  0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
                  0, cookie);
     }
@@ -1337,8 +1336,7 @@ static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
         release_handle(proxied);
     } else {
         const char *msg = "Engine not found";
-        response(msg, strlen(msg),
-                 "", 0, "", 0,
+        response(NULL, 0, NULL, 0, msg, strlen(msg),
                  0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
                  0, cookie);
     }
@@ -1371,8 +1369,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
         response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
     } else {
         const char *msg = "Engine not found";
-        response(msg, strlen(msg),
-                 "", 0, "", 0,
+        response(NULL, 0, NULL, 0, msg, strlen(msg),
                  0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
                  0, cookie);
     }
