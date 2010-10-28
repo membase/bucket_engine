@@ -80,5 +80,5 @@ AC_SUBST(MEMCACHED_DIR)
 
 dnl ----------------------------------------------------------------------------
 
-AC_CONFIG_FILES(Makefile)
+AC_CONFIG_FILES(Makefile management/python_wrapper)
 AC_OUTPUT

@@ -27,6 +27,12 @@
 /libtool
 /ltmain.sh
 /m4/version.m4
+/management/collectd
+/management/collectd_memcached_buckets
+/management/create_bucket
+/management/delete_bucket
+/management/list_buckets
+/management/python_wrapper
 /missing
 /mkinstalldirs
 /stamp-h1
