@@ -46,6 +46,7 @@ typedef struct mock_item {
     uint16_t nkey; /**< The total length of the key (in bytes) */
 } mock_item;
 
+MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
@@ -119,6 +120,8 @@ static void handle_disconnect(const void *cookie,
                               ENGINE_EVENT_TYPE type,
                               const void *event_data,
                               const void *cb_data) {
+    (void)cookie;
+    (void)event_data;
     assert(type == ON_DISCONNECT);
     struct mock_engine *h = (struct mock_engine*)cb_data;
     ++h->disconnects;
@@ -128,6 +131,12 @@ static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* coo
                                           const void* client, size_t nclient,
                                           uint32_t flags,
                                           const void* userdata, size_t nuserdata) {
+    (void)cookie;
+    (void)client;
+    (void)nclient;
+    (void)flags;
+    (void)userdata;
+    (void)nuserdata;
     struct mock_engine *e = (struct mock_engine*)handle;
     assert(e->magic == MAGIC);
     assert(e->magic2 == MAGIC);
@@ -151,11 +160,27 @@ static ENGINE_ERROR_CODE mock_tap_notify(ENGINE_HANDLE* handle,
                                          size_t ndata,
                                          uint16_t vbucket) {
     struct mock_engine *e = (struct mock_engine*)handle;
+    (void)cookie;
+    (void)engine_specific;
+    (void)nengine;
+    (void)ttl;
+    (void)tap_flags;
+    (void)tap_event;
+    (void)tap_seqno;
+    (void)key;
+    (void)nkey;
+    (void)flags;
+    (void)exptime;
+    (void)cas;
+    (void)data;
+    (void)ndata;
+    (void)vbucket;
     assert(e->magic == MAGIC);
     assert(e->magic2 == MAGIC);
     return ENGINE_SUCCESS;
 }
 
+MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -221,10 +246,12 @@ static void* hash_strdup(const void *k, size_t nkey) {
 }
 
 static void* noop_dup(const void* ob, size_t vlen) {
+    (void)vlen;
     return (void*)ob;
 }
 
 static void noop_free(void* ob) {
+    (void)ob;
     // Nothing
 }
 
@@ -281,7 +308,7 @@ static ENGINE_ERROR_CODE mock_item_allocate(ENGINE_HANDLE* handle,
                                             const size_t nbytes,
                                             const int flags,
                                             const rel_time_t exptime) {
-
+    (void)cookie;
     // Only perform allocations if there's a hashtable.
     if (get_ht(handle) != NULL) {
         size_t to_alloc = sizeof(mock_item) + nkey + nbytes;
@@ -309,24 +336,31 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const size_t nkey,
                                           uint64_t cas,
                                           uint16_t vbucket) {
+    (void)cookie;
+    (void)cas;
+    (void)vbucket;
     int r = genhash_delete_all(get_ht(handle), key, nkey);
     return r > 0 ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 }
 
 static void mock_item_release(ENGINE_HANDLE* handle,
-                              const void *cookie, item* item) {
-    free(item);
+                              const void *cookie, item* itm) {
+    (void)handle;
+    (void)cookie;
+    free(itm);
 }
 
 static ENGINE_ERROR_CODE mock_get(ENGINE_HANDLE* handle,
                                   const void* cookie,
-                                  item** item,
+                                  item** itm,
                                   const void* key,
                                   const int nkey,
                                   uint16_t vbucket) {
-    *item = genhash_find(get_ht(handle), key, nkey);
+    (void)cookie;
+    (void)vbucket;
+    *itm = genhash_find(get_ht(handle), key, nkey);
 
-    return *item ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
+    return *itm ? ENGINE_SUCCESS : ENGINE_KEY_ENOENT;
 }
 
 static ENGINE_ERROR_CODE mock_get_stats(ENGINE_HANDLE* handle,
@@ -335,18 +369,27 @@ static ENGINE_ERROR_CODE mock_get_stats(ENGINE_HANDLE* handle,
                                         int nkey,
                                         ADD_STAT add_stat)
 {
+    (void)handle;
+    (void)cookie;
+    (void)stat_key;
+    (void)nkey;
+    (void)add_stat;
     // TODO:  Implement
     return ENGINE_SUCCESS;
 }
 
 static ENGINE_ERROR_CODE mock_store(ENGINE_HANDLE* handle,
                                     const void *cookie,
-                                    item* item,
+                                    item* itm,
                                     uint64_t *cas,
                                     ENGINE_STORE_OPERATION operation,
                                     uint16_t vbucket) {
-    mock_item* it = (mock_item*)item;
-    genhash_update(get_ht(handle), item_get_key(item), it->nkey, item, 0);
+    (void)cookie;
+    (void)cas;
+    (void)vbucket;
+    (void)operation;
+    mock_item* it = (mock_item*)itm;
+    genhash_update(get_ht(handle), item_get_key(itm), it->nkey, itm, 0);
     return ENGINE_SUCCESS;
 }
 
@@ -362,6 +405,8 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
                                          uint64_t *cas,
                                          uint64_t *result,
                                          uint16_t vbucket) {
+    (void)increment;
+    (void)vbucket;
     item *item_in = NULL, *item_out = NULL;
     int flags = 0;
     *cas = 0;
@@ -396,11 +441,15 @@ static ENGINE_ERROR_CODE mock_arithmetic(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE mock_flush(ENGINE_HANDLE* handle,
                                     const void* cookie, time_t when) {
+    (void)cookie;
+    (void)when;
     genhash_clear(get_ht(handle));
     return ENGINE_SUCCESS;
 }
 
 static void mock_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
+    (void)handle;
+    (void)cookie;
     // TODO:  Implement
 }
 
@@ -409,6 +458,7 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response)
 {
+    (void)handle;
     if (request->request.opcode != EXPAND_BUCKET) {
         return ENGINE_ENOTSUP;
     }
@@ -417,48 +467,52 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static uint64_t item_get_cas(const item* item)
+static uint64_t item_get_cas(const item* itm)
 {
-    const mock_item* it = (mock_item*)item;
+    const mock_item* it = (mock_item*)itm;
     return it->cas;
 }
 
 static void item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
-                         item* item, uint64_t val)
+                         item* itm, uint64_t val)
 {
-    mock_item* it = (mock_item*)item;
+    (void)handle;
+    (void)cookie;
+    mock_item* it = (mock_item*)itm;
     it->cas = val;
 }
 
-static const char* item_get_key(const item* item)
+static const char* item_get_key(const item* itm)
 {
-    const mock_item* it = (mock_item*)item;
+    const mock_item* it = (mock_item*)itm;
     char *ret = (void*)(it + 1);
     return ret;
 }
 
-static char* item_get_data(const item* item)
+static char* item_get_data(const item* itm)
 {
-    const mock_item* it = (mock_item*)item;
-    return ((char*)item_get_key(item)) + it->nkey;
+    const mock_item* it = (mock_item*)itm;
+    return ((char*)item_get_key(itm)) + it->nkey;
 }
 
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
-                          const item* item, item_info *item_info)
+                          const item* itm, item_info *itm_info)
 {
-    mock_item* it = (mock_item*)item;
-    if (item_info->nvalue < 1) {
+    (void)handle;
+    (void)cookie;
+    mock_item* it = (mock_item*)itm;
+    if (itm_info->nvalue < 1) {
         return false;
     }
-    item_info->cas = item_get_cas(it);
-    item_info->exptime = it->exptime;
-    item_info->nbytes = it->nbytes;
-    item_info->flags = it->flags;
-    item_info->clsid = it->clsid;
-    item_info->nkey = it->nkey;
-    item_info->nvalue = 1;
-    item_info->key = item_get_key(it);
-    item_info->value[0].iov_base = item_get_data(it);
-    item_info->value[0].iov_len = it->nbytes;
+    itm_info->cas = item_get_cas(it);
+    itm_info->exptime = it->exptime;
+    itm_info->nbytes = it->nbytes;
+    itm_info->flags = it->flags;
+    itm_info->clsid = it->clsid;
+    itm_info->nkey = it->nkey;
+    itm_info->nvalue = 1;
+    itm_info->key = item_get_key(it);
+    itm_info->value[0].iov_base = item_get_data(it);
+    itm_info->value[0].iov_len = it->nbytes;
     return true;
 }

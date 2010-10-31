@@ -74,6 +74,7 @@ struct bucket_engine {
     } info;
 };
 
+MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle);
@@ -216,7 +217,8 @@ struct bucket_engine bucket_engine = {
         .description = "Bucket engine v0.2",
         .num_features = 1,
         .features = {
-            [0].feature = ENGINE_FEATURE_MULTI_TENANCY
+            {.feature = ENGINE_FEATURE_MULTI_TENANCY,
+             .description = "Multi tenancy"}
         }
     },
 };
@@ -252,6 +254,9 @@ struct bucket_find_by_handle_data {
 static void find_bucket_by_engine(const void* key, size_t nkey,
                                   const void *val, size_t nval,
                                   void *args) {
+    (void)key;
+    (void)nkey;
+    (void)nval;
     struct bucket_find_by_handle_data *find_data = args;
     assert(find_data);
     assert(find_data->needle);
@@ -288,6 +293,9 @@ static void bucket_register_callback(ENGINE_HANDLE *eh,
 
 static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
                                      const void *data, const void *cookie) {
+    (void)type;
+    (void)data;
+    (void)cookie;
     abort(); /* Not implemented */
 }
 
@@ -306,10 +314,14 @@ static void* bucket_get_engine_specific(const void *cookie) {
 
 static bool bucket_register_extension(extension_type_t type,
                                       void *extension) {
+    (void)type;
+    (void)extension;
     return false;
 }
 
 static void bucket_unregister_extension(extension_type_t type, void *extension) {
+    (void)type;
+    (void)extension;
     abort(); /* No extensions registered, none can unregister */
 }
 
@@ -559,6 +571,7 @@ static void* hash_strdup(const void *k, size_t nkey) {
 }
 
 static void* refcount_dup(const void* ob, size_t vlen) {
+    (void)vlen;
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     assert(peh);
     if (pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
@@ -661,6 +674,8 @@ static void handle_connect(const void *cookie,
                            ENGINE_EVENT_TYPE type,
                            const void *event_data,
                            const void *cb_data) {
+    (void)type;
+    (void)event_data;
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
     proxied_engine_handle_t *peh = NULL;
@@ -689,6 +704,7 @@ static void handle_auth(const void *cookie,
                         ENGINE_EVENT_TYPE type,
                         const void *event_data,
                         const void *cb_data) {
+    (void)type;
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
     const auth_data_t *auth_data = (const auth_data_t*)event_data;
@@ -791,7 +807,7 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
 
 static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const void* cookie,
-                                              item **item,
+                                              item **itm,
                                               const void* key,
                                               const size_t nkey,
                                               const size_t nbytes,
@@ -799,7 +815,7 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const rel_time_t exptime) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->allocate(e->v0, cookie, item, key,
+        return e->v1->allocate(e->v0, cookie, itm, key,
                                nkey, nbytes, flags, exptime);
     } else {
         return ENGINE_DISCONNECT;
@@ -822,22 +838,22 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
 
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
-                                item* item) {
+                                item* itm) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        e->v1->release(e->v0, cookie, item);
+        e->v1->release(e->v0, cookie, itm);
     }
 }
 
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
-                                    item** item,
+                                    item** itm,
                                     const void* key,
                                     const int nkey,
                                     uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->get(e->v0, cookie, item, key, nkey, vbucket);
+        return e->v1->get(e->v0, cookie, itm, key, nkey, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -853,6 +869,7 @@ struct bucket_list {
 static void add_engine(const void *key, size_t nkey,
                   const void *val, size_t nval,
                   void *arg) {
+    (void)nval;
     struct bucket_list **blist_ptr = (struct bucket_list **)arg;
     struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
     n->name = (char*)key;
@@ -888,7 +905,7 @@ static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 void (*callback)(void*, void*),
                                                 void *stats) {
-
+    (void)cookie;
     struct bucket_engine *e = (struct bucket_engine*)handle;
     struct bucket_list *blist = NULL;
     if (! list_buckets(e, &blist)) {
@@ -913,6 +930,7 @@ struct stat_context {
 static void stat_ht_builder(const void *key, size_t nkey,
                             const void *val, size_t nval,
                             void *arg) {
+    (void)nval;
     assert(arg);
     struct stat_context *ctx = (struct stat_context*)arg;
     proxied_engine_handle_t *bucket = (proxied_engine_handle_t*)val;
@@ -979,13 +997,13 @@ static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
-                                      item* item,
+                                      item* itm,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->store(e->v0, cookie, item, cas, operation, vbucket);
+        return e->v1->store(e->v0, cookie, itm, cas, operation, vbucket);
     } else {
         return ENGINE_DISCONNECT;
     }
@@ -1032,21 +1050,21 @@ static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
 
 static bool bucket_get_item_info(ENGINE_HANDLE *handle,
                                  const void *cookie,
-                                 const item* item,
-                                 item_info *item_info) {
+                                 const item* itm,
+                                 item_info *itm_info) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        return e->v1->get_item_info(e->v0, cookie, item, item_info);
+        return e->v1->get_item_info(e->v0, cookie, itm, itm_info);
     } else {
         return false;
     }
 }
 
 static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
-                                item *item, uint64_t cas) {
+                                item *itm, uint64_t cas) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
-        e->v1->item_set_cas(e->v0, cookie, item, cas);
+        e->v1->item_set_cas(e->v0, cookie, itm, cas);
     }
 }
 
@@ -1078,7 +1096,7 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
 
 static tap_event_t bucket_tap_iterator_shim(ENGINE_HANDLE* handle,
                                             const void *cookie,
-                                            item **item,
+                                            item **itm,
                                             void **engine_specific,
                                             uint16_t *nengine_specific,
                                             uint8_t *ttl,
@@ -1088,7 +1106,7 @@ static tap_event_t bucket_tap_iterator_shim(ENGINE_HANDLE* handle,
     proxied_engine_handle_t *e = get_engine_handle(handle, cookie);
     if (e && e->tap_iterator) {
         assert(e->pe.v0 != handle);
-        return e->tap_iterator(e->pe.v0, cookie, item,
+        return e->tap_iterator(e->pe.v0, cookie, itm,
                                engine_specific, nengine_specific,
                                ttl, flags, seqno, vbucket);
     } else {
@@ -1257,6 +1275,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              protocol_binary_request_header *request,
                                              ADD_RESPONSE response) {
+    (void)request;
     struct bucket_engine *e = (struct bucket_engine*)handle;
 
     // Accumulate the current bucket list.

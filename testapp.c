@@ -70,6 +70,46 @@ static struct connstruct *connstructs;
 
 static struct engine_event_handler *engine_event_handlers[MAX_ENGINE_EVENT_TYPE + 1];
 
+#define xisspace(c) isspace((unsigned char)c)
+
+bool safe_strtoull(const char *str, uint64_t *out) {
+    assert(out != NULL);
+    errno = 0;
+    *out = 0;
+    char *endptr;
+    unsigned long long ull = strtoull(str, &endptr, 10);
+    if (errno == ERANGE)
+        return false;
+    if (xisspace(*endptr) || (*endptr == '\0' && endptr != str)) {
+        if ((long long) ull < 0) {
+            /* only check for negative signs in the uncommon case when
+             * the unsigned number is so big that it's negative as a
+             * signed number. */
+            if (strchr(str, '-') != NULL) {
+                return false;
+            }
+        }
+        *out = ull;
+        return true;
+    }
+    return false;
+}
+
+bool safe_strtof(const char *str, float *out) {
+    assert(out != NULL);
+    errno = 0;
+    *out = 0;
+    char *endptr;
+    float l = strtof(str, &endptr);
+    if (errno == ERANGE)
+        return false;
+    if (isspace(*endptr) || (*endptr == '\0' && endptr != str)) {
+        *out = l;
+        return true;
+    }
+    return false;
+}
+
 static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
                                      const void *data,
                                      const void *cookie) {
@@ -80,7 +120,7 @@ static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
     }
 }
 
-static const char* get_server_version() {
+static const char* get_server_version(void) {
     return "bucket mock";
 }
 
@@ -119,6 +159,7 @@ static void register_callback(ENGINE_HANDLE *eh,
                               ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb,
                               const void *cb_data) {
+    (void)eh;
     struct engine_event_handler *h =
         calloc(sizeof(struct engine_event_handler), 1);
     assert(h);
@@ -143,7 +184,7 @@ static void *get_engine_specific(const void *cookie) {
     return c ? c->engine_data : NULL;
 }
 
-static void *create_stats() {
+static void *create_stats(void) {
     /* XXX: Not sure if ``big buffer'' is right in faking this part of
        the server. */
     void *s = calloc(1, 256);
@@ -186,7 +227,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         // .evicting = count_eviction
     };
 
-    static SERVER_EXTENSION_API extension_api = { 0 };
+    static SERVER_EXTENSION_API extension_api = { 0, 0, 0 };
         // .register_extension = register_extension,
         // .unregister_extension = unregister_extension,
         // .get_extension = get_extension
@@ -213,6 +254,11 @@ static bool add_response(const void *key, uint16_t keylen,
                          const void *body, uint32_t bodylen,
                          uint8_t datatype, uint16_t status,
                          uint64_t cas, const void *cookie) {
+    (void)ext;
+    (void)extlen;
+    (void)datatype;
+    (void)cas;
+    (void)cookie;
     last_status = status;
     if (last_body) {
         free(last_body);
@@ -326,54 +372,54 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                   const char *key, const char *value,
                   item **outitem) {
 
-    item *item = NULL;
+    item *itm = NULL;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, cookie, item, &info);
+    h1->get_item_info(h, cookie, itm, &info);
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
-    rv = h1->store(h, cookie, item, 0, OPERATION_SET, 0);
+    rv = h1->store(h, cookie, itm, 0, OPERATION_SET, 0);
     assert(rv == ENGINE_SUCCESS);
 
     if (outitem) {
-        *outitem = item;
+        *outitem = itm;
     }
 }
 
 static enum test_result test_default_storage(ENGINE_HANDLE *h,
                                              ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL, *fetched_item;
+    item *itm = NULL, *fetched_item;
     const void *cookie = mk_conn(NULL, NULL);
     char *key = "somekey";
     char *value = "some value";
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    assert(h1->get_item_info(h, cookie, item, &info));
+    assert(h1->get_item_info(h, cookie, itm, &info));
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
-    rv = h1->store(h, cookie, item, 0, OPERATION_SET, 0);
+    rv = h1->store(h, cookie, itm, 0, OPERATION_SET, 0);
     assert(rv == ENGINE_SUCCESS);
 
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, cookie, item, cookie, fetched_item);
+    assert_item_eq(h, h1, cookie, itm, cookie, fetched_item);
 
     // no effect, but increases coverage.
     h1->reset_stats(h, cookie);
@@ -383,30 +429,30 @@ static enum test_result test_default_storage(ENGINE_HANDLE *h,
 
 static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
                                                          ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL, *fetched_item;
+    item *itm = NULL, *fetched_item;
     const void *cookie = mk_conn(NULL, NULL);
     char *key = "somekeyx";
     char *value = "some value";
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key)-1,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, cookie, item, &info);
+    h1->get_item_info(h, cookie, itm, &info);
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
-    rv = h1->store(h, cookie, item, 0, OPERATION_SET, 0);
+    rv = h1->store(h, cookie, itm, 0, OPERATION_SET, 0);
     assert(rv == ENGINE_SUCCESS);
 
     rv = h1->get(h, cookie, &fetched_item, "somekey", strlen("somekey"), 0);
     assert(rv == ENGINE_SUCCESS);
 
-    assert_item_eq(h, h1, cookie, item, cookie, fetched_item);
+    assert_item_eq(h, h1, cookie, itm, cookie, fetched_item);
 
     h1->get_item_info(h, cookie, fetched_item, &info);
 
@@ -418,14 +464,14 @@ static enum test_result test_default_storage_key_overrun(ENGINE_HANDLE *h,
 
 static enum test_result test_default_unlinked_remove(ENGINE_HANDLE *h,
                                                      ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL;
+    item *itm = NULL;
     const void *cookie = mk_conn(NULL, NULL);
     char *key = "somekeyx";
     const char *value = "the value";
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key)-1,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
@@ -437,7 +483,7 @@ static enum test_result test_default_unlinked_remove(ENGINE_HANDLE *h,
 
 static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
                                                        ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL, *fetched_item;
+    item *itm = NULL, *fetched_item;
     const void *cookie = mk_conn("autouser", NULL);
     char *key = "somekey";
     char *value = "some value";
@@ -445,12 +491,12 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
 
-    rv = h1->store(h, cookie, item, 0, OPERATION_SET, 0);
+    rv = h1->store(h, cookie, itm, 0, OPERATION_SET, 0);
     assert(rv == ENGINE_DISCONNECT);
 
     rv = h1->get(h, cookie, &fetched_item, key, strlen(key), 0);
@@ -471,14 +517,14 @@ static enum test_result test_two_engines_no_autocreate(ENGINE_HANDLE *h,
 
 static enum test_result test_no_default_storage(ENGINE_HANDLE *h,
                                                 ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL, *fetched_item;
+    item *itm = NULL, *fetched_item;
     const void *cookie = mk_conn(NULL, NULL);
     char *key = "somekey";
     char *value = "some value";
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -638,10 +684,10 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     const void *adm_cookie = mk_conn("admin", NULL);
     const char *key = "somekey";
     const char *value = "the value";
-    item *item;
+    item *itm;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-    rv = h1->allocate(h, mk_conn("someuser", NULL), &item,
+    rv = h1->allocate(h, mk_conn("someuser", NULL), &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -652,7 +698,7 @@ static enum test_result test_create_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    rv = h1->allocate(h, mk_conn("someuser", NULL), &item,
+    rv = h1->allocate(h, mk_conn("someuser", NULL), &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
@@ -675,7 +721,7 @@ static enum test_result test_double_create_bucket(ENGINE_HANDLE *h,
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
-    assert(last_status == ENGINE_KEY_EEXISTS);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
 
     return SUCCESS;
 }
@@ -685,10 +731,10 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
     const void *adm_cookie = mk_conn("admin", NULL), *other_cookie = mk_conn("someuser", NULL);
     const char *key = "somekey";
     const char *value = "the value";
-    item *item;
+    item *itm;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-    rv = h1->allocate(h, adm_cookie, &item,
+    rv = h1->allocate(h, adm_cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -699,7 +745,7 @@ static enum test_result test_create_bucket_with_params(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    rv = h1->allocate(h, other_cookie, &item,
+    rv = h1->allocate(h, other_cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -738,7 +784,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     const void *adm_cookie = mk_conn("admin", NULL);
     const char *key = "somekey";
     const char *value = "the value";
-    item *item;
+    item *itm;
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
@@ -750,7 +796,7 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
 
     const void *other_cookie = mk_conn("someuser", NULL);
 
-    rv = h1->allocate(h, other_cookie, &item,
+    rv = h1->allocate(h, other_cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
@@ -764,9 +810,9 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
-    assert(last_status == ENGINE_KEY_ENOENT);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
 
-    rv = h1->allocate(h, other_cookie, &item,
+    rv = h1->allocate(h, other_cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -790,14 +836,14 @@ static void* conc_del_bucket_thread(void *arg) {
 
         void *cokie = mk_conn("someuser", NULL);
 
-        item *item;
-        ENGINE_ERROR_CODE rv = hp->h1->allocate(hp->h, cokie, &item,
+        item *itm;
+        ENGINE_ERROR_CODE rv = hp->h1->allocate(hp->h, cokie, &itm,
                                                 key, klen,
                                                 vlen, 9258, 3600);
         keepGoing = rv != ENGINE_DISCONNECT;
 
         if (rv == ENGINE_SUCCESS) {
-            hp->h1->release(hp->h, cokie, item);
+            hp->h1->release(hp->h, cokie, itm);
         }
 
         disconnect(cokie);
@@ -834,10 +880,10 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     const void *other_cookie = mk_conn("someuser", NULL);
-    item *item;
+    item *itm;
     const char* key = "testkey";
     const char* value = "testvalue";
-    rv = h1->allocate(h, other_cookie, &item,
+    rv = h1->allocate(h, other_cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
@@ -1029,7 +1075,7 @@ static enum test_result test_select_no_bucket(ENGINE_HANDLE *h,
     rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
-    assert(last_status == ENGINE_KEY_ENOENT);
+    assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
 
     return SUCCESS;
 }
@@ -1068,6 +1114,7 @@ static enum test_result test_select(ENGINE_HANDLE *h,
 static void add_stats(const char *key, const uint16_t klen,
                       const char *val, const uint32_t vlen,
                       const void *cookie) {
+    (void)cookie;
     genhash_update(stats_hash, key, klen, val, vlen);
 }
 
@@ -1128,14 +1175,14 @@ static enum test_result test_unknown_call_no_bucket(ENGINE_HANDLE *h,
 
 static enum test_result test_auto_config(ENGINE_HANDLE *h,
                                          ENGINE_HANDLE_V1 *h1) {
-    item *item = NULL;
+    item *itm = NULL;
     const void *cookie = mk_conn("someuser", MOCK_CONFIG_NO_ALLOC);
     char *key = "somekey";
     char *value = "some value";
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
 
-    rv = h1->allocate(h, cookie, &item,
+    rv = h1->allocate(h, cookie, &itm,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_ENOMEM);
@@ -1228,7 +1275,7 @@ static void destroy_event_handlers_rec(struct engine_event_handler *h) {
     }
 }
 
-static void destroy_event_handlers() {
+static void destroy_event_handlers(void) {
     int i = 0;
     for (i = 0; i < MAX_ENGINE_EVENT_TYPE; i++) {
         destroy_event_handlers_rec(engine_event_handlers[i]);
@@ -1301,14 +1348,16 @@ static enum test_result run_test(struct test test) {
 }
 
 int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
     int i = 0;
     int rc = 0;
 
     struct test tests[] = {
-        {"get info", test_get_info},
-        {"default storage", test_default_storage},
-        {"default storage key overrun", test_default_storage_key_overrun},
-        {"default unlinked remove", test_default_unlinked_remove},
+        {"get info", test_get_info, NULL},
+        {"default storage", test_default_storage, NULL},
+        {"default storage key overrun", test_default_storage_key_overrun, NULL},
+        {"default unlinked remove", test_default_unlinked_remove, NULL},
         {"no default storage",
          test_no_default_storage,
          "engine=.libs/mock_engine.so;default=false"},
@@ -1328,31 +1377,32 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_NO_DEF},
         {"create bucket with params", test_create_bucket_with_params,
          DEFAULT_CONFIG_NO_DEF},
-        {"bucket name verification", test_bucket_name_validation},
+        {"bucket name verification", test_bucket_name_validation, NULL},
         {"delete bucket", test_delete_bucket,
          DEFAULT_CONFIG_NO_DEF},
         {"concurrent access delete bucket", test_delete_bucket_concurrent,
          DEFAULT_CONFIG_NO_DEF},
-        {"expand bucket", test_expand_bucket},
-        {"expand missing bucket", test_expand_missing_bucket},
-        {"list buckets with none", test_list_buckets_none},
-        {"list buckets with one", test_list_buckets_one},
-        {"list buckets", test_list_buckets_two},
-        {"fail to select a bucket when not admin", test_select_no_admin},
+        {"expand bucket", test_expand_bucket, NULL},
+        {"expand missing bucket", test_expand_missing_bucket, NULL},
+        {"list buckets with none", test_list_buckets_none, NULL},
+        {"list buckets with one", test_list_buckets_one, NULL},
+        {"list buckets", test_list_buckets_two, NULL},
+        {"fail to select a bucket when not admin", test_select_no_admin, NULL},
         {"select a bucket as admin", test_select, DEFAULT_CONFIG_AC},
-        {"fail to select non-existent bucket as admin", test_select_no_bucket},
-        {"stats call", test_stats},
-        {"stats bucket call", test_stats_bucket},
-        {"release call"},
-        {"unknown call delegation", test_unknown_call},
+        {"fail to select non-existent bucket as admin",
+         test_select_no_bucket, NULL},
+        {"stats call", test_stats, NULL},
+        {"stats bucket call", test_stats_bucket, NULL},
+        {"release call", NULL, NULL},
+        {"unknown call delegation", test_unknown_call, NULL},
         {"unknown call delegation (no bucket)", test_unknown_call_no_bucket,
          DEFAULT_CONFIG_NO_DEF},
-        {"admin verification", test_admin_user},
+        {"admin verification", test_admin_user, NULL},
         {"auto create with config", test_auto_config,
          DEFAULT_CONFIG_AC},
-        {"get tap iterator", test_get_tap_iterator},
-        {"tap notify", test_tap_notify},
-        {NULL, NULL}
+        {"get tap iterator", test_get_tap_iterator, NULL},
+        {"tap notify", test_tap_notify, NULL},
+        {NULL, NULL, NULL}
     };
 
     for (i = 0; tests[i].name; i++) {

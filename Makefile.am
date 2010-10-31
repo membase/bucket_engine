@@ -2,24 +2,21 @@ TMP_DIR=./tmp
 
 TMP_VER=$(TMP_DIR)/version_num.tmp
 
-common_CFLAGS=@PROFILER_FLAGS@ -I@MEMCACHED_DIR@/include
-common_LDFLAGS=-g @PROFILER_LDFLAGS@ @MEMCACHED_DIR@/libmcd_util.la
-
 lib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h
-bucket_engine_la_CFLAGS = $(common_CFLAGS)
-bucket_engine_la_LDFLAGS= -module -dynamic $(common_LDFLAGS)
+bucket_engine_la_LDFLAGS= -module -dynamic
+bucket_engine_la_LIBADD = libgenhash.la
 
-noinst_LTLIBRARIES = mock_engine.la
+noinst_LTLIBRARIES = mock_engine.la libgenhash.la
+libgenhash_la_SOURCES = genhash.c genhash.h genhash_int.h
 mock_engine_la_SOURCES = mock_engine.c
-mock_engine_la_CFLAGS = $(common_CFLAGS)
-mock_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere $(common_LDFLAGS)
+mock_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere
+mock_engine_la_LIBADD = libgenhash.la
 
 noinst_PROGRAMS = testapp
 testapp_SOURCES = testapp.c
-testapp_DEPENDENCIES = mock_engine.la
-testapp_CFLAGS = $(common_CFLAGS)
-testapp_LDFLAGS = $(common_LDFLAGS)
+testapp_DEPENDENCIES = mock_engine.la libgenhash.la
+testapp_LDADD = libgenhash.la
 
 pythonlibdir=$(libdir)/python
 pythonlib_DATA= \
