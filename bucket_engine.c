@@ -1,3 +1,5 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -11,6 +13,10 @@
 #endif
 
 #include <assert.h>
+
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
 
 #include <memcached/engine.h>
 #include <memcached/genhash.h>
@@ -48,6 +54,12 @@ typedef struct engine_specific {
     void                    *engine_specific;
 } engine_specific_t;
 
+typedef struct lua_ctx { // Allows lookup from thread_id to lua_State.
+    pthread_t  thread_id;
+    lua_State *lua;
+    struct lua_ctx *next;
+} lua_ctx;
+
 struct bucket_engine {
     ENGINE_HANDLE_V1 engine;
     SERVER_HANDLE_V1 *upstream_server;
@@ -72,9 +84,57 @@ struct bucket_engine {
       char buffer[sizeof(engine_info) +
                   (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
     } info;
+
+    char *lua_path;
+    lua_ctx *lua_ctx_head;
 };
 
 EXTENSION_LOGGER_DESCRIPTOR *getLogger(void);
+
+lua_State *create_lua(const char *lua_path);
+lua_State *get_lua(struct bucket_engine *engine);
+lua_ctx *get_lua_ctx(struct bucket_engine *engine);
+
+void *get_lua_userdata(lua_State *L, int ud, const char *tname);
+
+int from_lua_log(lua_State *L);
+
+struct bucket_engine *check_lua_bucket_engine(lua_State *L, int narg);
+bool to_lua_push_bucket_engine(lua_State *L, struct bucket_engine *be);
+
+const void *check_lua_cookie(lua_State *L, int narg);
+bool to_lua_push_cookie(lua_State *L, const void *cookie);
+
+uint64_t *from_lua_cas(lua_State *L, int narg);
+uint64_t *check_lua_cas(lua_State *L, int narg);
+bool to_lua_push_cas(lua_State *L, uint64_t cas);
+
+item **from_lua_item(lua_State *L, int narg);
+item **check_lua_item(lua_State *L, int narg);
+bool to_lua_push_item(lua_State *L, item *item);
+
+int from_lua_bucket_get(lua_State *L);
+ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
+                                    const void* cookie,
+                                    item** it,
+                                    const void* key,
+                                    const int nkey,
+                                    uint16_t vbucket);
+
+int from_lua_bucket_store(lua_State *L);
+ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
+                                      const void *cookie,
+                                      item* itm,
+                                      uint64_t *cas,
+                                      ENGINE_STORE_OPERATION operation,
+                                      uint16_t vbucket);
+
+static const struct luaL_reg lua_bucket_engine[] = {
+    {"log", from_lua_log},
+    {"bucket_get", from_lua_bucket_get},
+    {"bucket_store", from_lua_bucket_store},
+    {NULL, NULL}
+};
 
 MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
@@ -111,6 +171,12 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* key,
                                     const int nkey,
                                     uint16_t vbucket);
+static ENGINE_ERROR_CODE inner_bucket_get(ENGINE_HANDLE* handle,
+                                          const void* cookie,
+                                          item** item,
+                                          const void* key,
+                                          const int nkey,
+                                          uint16_t vbucket);
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void *cookie,
                                           const char *stat_key,
@@ -129,6 +195,12 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket);
+static ENGINE_ERROR_CODE inner_bucket_store(ENGINE_HANDLE* handle,
+                                            const void *cookie,
+                                            item* item,
+                                            uint64_t *cas,
+                                            ENGINE_STORE_OPERATION operation,
+                                            uint16_t vbucket);
 static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const void* cookie,
                                            const void* key,
@@ -808,6 +880,18 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         se->default_bucket_name = NULL;
         pthread_mutex_destroy(&se->engines_mutex);
         se->initialized = false;
+        free(se->lua_path);
+        se->lua_path = NULL;
+        while (se->lua_ctx_head != NULL) {
+            lua_ctx *curr = se->lua_ctx_head;
+            se->lua_ctx_head = se->lua_ctx_head->next;
+            if (curr->lua != NULL) {
+                lua_close(curr->lua);
+                curr->lua = NULL;
+            }
+            curr->next = NULL;
+            free(curr);
+        }
     }
 }
 
@@ -857,6 +941,20 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* key,
                                     const int nkey,
                                     uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *ls = get_lua(be);
+    if (ls != NULL) {
+        return to_lua_bucket_get(handle, cookie, itm, key, nkey, vbucket);
+    }
+    return inner_bucket_get(handle, cookie, itm, key, nkey, vbucket);
+}
+
+static ENGINE_ERROR_CODE inner_bucket_get(ENGINE_HANDLE* handle,
+                                          const void* cookie,
+                                          item** itm,
+                                          const void* key,
+                                          const int nkey,
+                                          uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         return e->v1->get(e->v0, cookie, itm, key, nkey, vbucket);
@@ -1007,6 +1105,22 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *ls = get_lua(be);
+    if (ls != NULL) {
+        return to_lua_bucket_store(handle, cookie, itm, cas,
+                                   operation, vbucket);
+    }
+    return inner_bucket_store(handle, cookie, itm, cas,
+                              operation, vbucket);
+}
+
+static ENGINE_ERROR_CODE inner_bucket_store(ENGINE_HANDLE* handle,
+                                            const void *cookie,
+                                            item* itm,
+                                            uint64_t *cas,
+                                            ENGINE_STORE_OPERATION operation,
+                                            uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         return e->v1->store(e->v0, cookie, itm, cas, operation, vbucket);
@@ -1172,6 +1286,9 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
               .value.dt_bool = &me->auto_create },
             { .key = "config_file",
               .datatype = DT_CONFIGFILE },
+            { .key = "lua_path",
+              .datatype = DT_STRING,
+              .value.dt_string = &me->lua_path },
             { .key = NULL}
         };
 
@@ -1448,3 +1565,323 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     }
     return rv;
 }
+
+lua_State *get_lua(struct bucket_engine *engine) {
+    lua_ctx *lc = get_lua_ctx(engine);
+    if (lc != NULL) {
+        return lc->lua;
+    }
+    return NULL;
+}
+
+/* Lookup a lua_ctx for the current thread, creating
+ * one if needed.
+ */
+lua_ctx *get_lua_ctx(struct bucket_engine *engine) {
+    assert(engine);
+    pthread_t thread_id = pthread_self();
+    if (pthread_mutex_lock(&engine->engines_mutex) != 0) {
+        return NULL;
+    }
+    lua_ctx *prev = NULL;
+    lua_ctx *curr = engine->lua_ctx_head;
+    while (curr != NULL) {
+        if (curr->thread_id == thread_id) {
+            assert(curr->lua);
+            pthread_mutex_unlock(&engine->engines_mutex);
+            return curr;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    curr = calloc(1, sizeof(lua_ctx));
+    if (curr != NULL) {
+        curr->lua = create_lua(engine->lua_path);
+        if (curr->lua != NULL) {
+            if (prev != NULL) {
+                prev->next = curr;
+            }
+            if (engine->lua_ctx_head == NULL) {
+                engine->lua_ctx_head = curr;
+            }
+            pthread_mutex_unlock(&engine->engines_mutex);
+            return curr;
+        }
+        free(curr);
+    }
+    pthread_mutex_unlock(&engine->engines_mutex);
+    return NULL;
+}
+
+lua_State *create_lua(const char *lua_path) {
+    lua_State *lua = lua_open();
+    if (lua != NULL) {
+        luaL_openlibs(lua);
+
+        luaL_newmetatable(lua, "membase.bucket_engine");
+        luaL_newmetatable(lua, "membase.cas");
+        luaL_newmetatable(lua, "membase.item");
+
+        lua_pushcfunction(lua, from_lua_log);
+        lua_setglobal(lua, "log");
+
+        lua_pushcfunction(lua, from_lua_bucket_get);
+        lua_setglobal(lua, "bucket_get");
+
+        lua_pushcfunction(lua, from_lua_bucket_store);
+        lua_setglobal(lua, "bucket_store");
+
+        luaL_register(lua, "bucket_engine", lua_bucket_engine);
+
+        if (lua_path == NULL) {
+            return lua;
+        }
+
+        int rv = luaL_dofile(lua, lua_path);
+        if (rv == 0) {
+            return lua;
+        }
+
+        fprintf(stderr, "Failed to create lua with \"%s\"\n",
+                lua_path);
+        lua_close(lua);
+    }
+    return NULL;
+}
+
+void *get_lua_userdata(lua_State *L, int ud, const char *tname) {
+    void *p = lua_touserdata(L, ud);
+    if (p != NULL) {
+        if (lua_getmetatable(L, ud)) {
+            lua_getfield(L, LUA_REGISTRYINDEX, tname);
+            if (lua_rawequal(L, -1, -2)) {
+                lua_pop(L, 2);
+                return p;
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Implements lua extension: log(int, string):void
+ */
+int from_lua_log(lua_State *L) {
+    int level = luaL_checkint(L, 1);
+    if (level < 0) {
+        level = 0;
+    }
+    if (level > EXTENSION_LOG_WARNING) {
+        level = EXTENSION_LOG_WARNING;
+    }
+    const char *msg = luaL_checkstring(L, 2);
+    if (msg != NULL) {
+        getLogger()->log((EXTENSION_LOG_LEVEL) level, NULL, "%s\n", msg);
+    }
+    return 0;
+}
+
+struct bucket_engine *check_lua_bucket_engine(lua_State *L, int narg) {
+    struct bucket_engine **ud = luaL_checkudata(L, narg,
+                                                "membase.bucket_engine");
+    luaL_argcheck(L, ud != NULL && *ud != NULL, narg,
+                  "`membase.bucket_engine' expected");
+    return *ud;
+}
+
+bool to_lua_push_bucket_engine(lua_State *L, struct bucket_engine *be) {
+    assert(be != NULL);
+    struct bucket_engine **ud =
+        lua_newuserdata(L, sizeof(struct bucket_engine *));
+    if (ud != NULL) {
+        *ud = be;
+        luaL_getmetatable(L, "membase.bucket_engine");
+        lua_setmetatable(L, -2);
+        return true;
+    }
+    return false;
+}
+
+const void *check_lua_cookie(lua_State *L, int narg) {
+    luaL_argcheck(L, lua_islightuserdata(L, 2) == 1, narg,
+                  "cookie expected");
+    const void *cookie = lua_touserdata(L, narg);
+    return cookie;
+}
+
+bool to_lua_push_cookie(lua_State *L, const void *cookie) {
+    lua_pushlightuserdata(L, (void *) cookie);
+    return true;
+}
+
+uint64_t *from_lua_cas(lua_State *L, int narg) {
+    return get_lua_userdata(L, narg, "membase.cas");
+}
+
+uint64_t *check_lua_cas(lua_State *L, int narg) {
+    uint64_t *ud = from_lua_cas(L, narg);
+    luaL_argcheck(L, ud != NULL, narg, "`membase.cas' expected");
+    return ud;
+}
+
+bool to_lua_push_cas(lua_State *L, uint64_t cas) {
+    uint64_t *ud = lua_newuserdata(L, sizeof(uint64_t));
+    if (ud != NULL) {
+        *ud = cas;
+        luaL_getmetatable(L, "membase.cas");
+        lua_setmetatable(L, -2);
+        return true;
+    }
+    return false;
+}
+
+item **from_lua_item(lua_State *L, int narg) {
+    return get_lua_userdata(L, narg, "membase.item");
+}
+
+item **check_lua_item(lua_State *L, int narg) {
+    item **ud = from_lua_item(L, narg);
+    luaL_argcheck(L, ud != NULL, narg, "`membase.item' expected");
+    return ud;
+}
+
+bool to_lua_push_item(lua_State *L, item *it) {
+    item **ud = lua_newuserdata(L, sizeof(item *));
+    if (ud != NULL) {
+        *ud = it;
+        luaL_getmetatable(L, "membase.item");
+        lua_setmetatable(L, -2);
+        return true;
+    }
+    return false;
+}
+
+/* Implements lua extension:
+ *   bucket_get(bucket:userdata, cookie:lightuserdata,
+ *              key:string, vbucket:int):err, item
+ */
+int from_lua_bucket_get(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
+    size_t nkey = 0;
+    const char *key = lua_tolstring(L, 3, &nkey);
+    uint16_t vbucket = (uint16_t) luaL_checkint(L, 4);
+    item *it = NULL;
+    ENGINE_ERROR_CODE rv =
+        inner_bucket_get((ENGINE_HANDLE *) be, cookie, &it,
+                         (const void *) key,
+                         (const int) nkey,
+                         vbucket);
+    lua_pushinteger(L, rv);
+    if (it != NULL) {
+        to_lua_push_item(L, it);
+        return 2;
+    }
+    return 1;
+}
+
+ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
+                                    const void* cookie,
+                                    item** it,
+                                    const void* key,
+                                    const int nkey,
+                                    uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *L = get_lua(be);
+    if (L != NULL) {
+        // Call lua...
+        //   bucket_get(engine, cookie, key:string, vbucket):err, item
+        //
+        lua_getglobal(L, "bucket_get");
+
+        to_lua_push_bucket_engine(L, be);
+        to_lua_push_cookie(L, cookie);
+        lua_pushlstring(L, key, nkey);
+        lua_pushinteger(L, vbucket);
+
+        if (lua_pcall(L, 4, 2, 0) == 0) {
+            if (lua_isnumber(L, -2) == 1) {
+                ENGINE_ERROR_CODE rv = lua_tointeger(L, -2);
+                if (it != NULL) {
+                    item **rv_it = from_lua_item(L, -1);
+                    if (rv_it != NULL) {
+                        *it = *rv_it;
+                    }
+                }
+                return rv;
+            }
+        }
+
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "lua bucket_get error: %s",
+                         lua_tostring(L, -1));
+    }
+    return ENGINE_DISCONNECT;
+}
+
+/* Implements lua extension:
+ *   bucket_store(bucket:userdata, cookie:lightuserdata,
+ *                item:userdata, cas:userdata,
+ *                operation:int, vbucket:int):err, cas
+ */
+int from_lua_bucket_store(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    item **itm = check_lua_item(L, 3);
+    uint64_t *cas = check_lua_cas(L, 4);
+    ENGINE_STORE_OPERATION operation = luaL_checkint(L, 5);
+    uint16_t vbucket = (uint16_t) luaL_checkint(L, 6);
+    ENGINE_ERROR_CODE rv =
+        inner_bucket_store((ENGINE_HANDLE *) be, cookie,
+                           itm != NULL ? *itm : NULL,
+                           cas, operation, vbucket);
+    lua_pushinteger(L, rv);
+    to_lua_push_cas(L, *cas);
+    return 2;
+}
+
+ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
+                                      const void *cookie,
+                                      item* itm,
+                                      uint64_t *cas,
+                                      ENGINE_STORE_OPERATION operation,
+                                      uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *L = get_lua(be);
+    if (L != NULL) {
+        // Call lua...
+        //   bucket_store(engine, cookie, item, cas, operation, vbucket):err, cas
+        //
+        lua_getglobal(L, "bucket_store");
+
+        to_lua_push_bucket_engine(L, be);
+        to_lua_push_cookie(L, cookie);
+        to_lua_push_item(L, itm);
+        if (cas != NULL) {
+            to_lua_push_cas(L, *cas);
+        } else {
+            to_lua_push_cas(L, 0);
+        }
+        lua_pushinteger(L, operation);
+        lua_pushinteger(L, vbucket);
+
+        if (lua_pcall(L, 6, 2, 0) == 0) {
+            if (lua_isnumber(L, -2) == 1) {
+                ENGINE_ERROR_CODE rv = lua_tointeger(L, -2);
+                if (cas != NULL) {
+                    uint64_t *rv_cas = from_lua_cas(L, -1);
+                    if (rv_cas != NULL) {
+                        *cas = *rv_cas;
+                    }
+                }
+                return rv;
+            }
+        }
+
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "lua bucket_get error: %s",
+                         lua_tostring(L, -1));
+    }
+    return ENGINE_DISCONNECT;
+}
+
