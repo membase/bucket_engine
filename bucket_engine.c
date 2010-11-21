@@ -74,6 +74,8 @@ struct bucket_engine {
     } info;
 };
 
+EXTENSION_LOGGER_DESCRIPTOR *getLogger(void);
+
 MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
@@ -327,6 +329,10 @@ static void bucket_unregister_extension(extension_type_t type, void *extension) 
 
 static void* bucket_get_extension(extension_type_t type) {
     return bucket_engine.upstream_server->extension->get_extension(type);
+}
+
+EXTENSION_LOGGER_DESCRIPTOR *getLogger(void) {
+    return bucket_get_extension(EXTENSION_LOGGER);
 }
 
 /* Engine API functions */
