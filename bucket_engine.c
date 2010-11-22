@@ -137,11 +137,14 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
                                        uint64_t cas,
                                        uint16_t vbucket);
 
+int from_lua_bucket_allocate(lua_State *L);
+
 static const struct luaL_reg lua_bucket_engine[] = {
     {"log", from_lua_log},
     {"bucket_get", from_lua_bucket_get},
     {"bucket_store", from_lua_bucket_store},
     {"bucket_remove", from_lua_bucket_remove},
+    {"bucket_allocate", from_lua_bucket_allocate},
     {NULL, NULL}
 };
 
@@ -1665,6 +1668,9 @@ lua_State *create_lua(const char *lua_path) {
         lua_pushcfunction(lua, from_lua_bucket_remove);
         lua_setglobal(lua, "bucket_remove");
 
+        lua_pushcfunction(lua, from_lua_bucket_allocate);
+        lua_setglobal(lua, "bucket_allocate");
+
         luaL_register(lua, "bucket_engine", lua_bucket_engine);
 
         if (lua_path == NULL) {
@@ -1921,7 +1927,7 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
 
 /* Implements lua extension:
  *   bucket_remove(bucket:userdata, cookie:lightuserdata,
- *                 key: string, cas:userdata,
+ *                 key:string, cas:userdata,
  *                 vbucket:int):err
  */
 int from_lua_bucket_remove(lua_State *L) {
@@ -1975,4 +1981,29 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
     return ENGINE_DISCONNECT;
 }
 
-
+/* Implements lua extension:
+ *   bucket_allocate(bucket:userdata, cookie:lightuserdata,
+ *                   key:string, nbytes, flags, exptime):err, item
+ */
+int from_lua_bucket_allocate(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
+    size_t nkey = 0;
+    const char *key = lua_tolstring(L, 3, &nkey);
+    size_t nbytes = luaL_checkint(L, 4);
+    int flags = luaL_checkint(L, 4);
+    rel_time_t exptime = luaL_checkint(L, 5);
+    item *itm = NULL;
+    ENGINE_ERROR_CODE rv =
+        bucket_item_allocate((ENGINE_HANDLE *) be, cookie, &itm,
+                             key, nkey, nbytes, flags, exptime);
+    lua_pushinteger(L, rv);
+    if (rv == ENGINE_SUCCESS) {
+        if (itm != NULL) {
+            to_lua_push_item(L, itm);
+            return 2;
+        }
+    }
+    return 1;
+}
