@@ -129,10 +129,19 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket);
 
+int from_lua_bucket_remove(lua_State *L);
+ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
+                                       const void *cookie,
+                                       const void *key,
+                                       const int nkey,
+                                       uint64_t cas,
+                                       uint16_t vbucket);
+
 static const struct luaL_reg lua_bucket_engine[] = {
     {"log", from_lua_log},
     {"bucket_get", from_lua_bucket_get},
     {"bucket_store", from_lua_bucket_store},
+    {"bucket_remove", from_lua_bucket_remove},
     {NULL, NULL}
 };
 
@@ -156,12 +165,18 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const size_t nbytes,
                                               const int flags,
                                               const rel_time_t exptime);
-static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
-                                            const void* cookie,
-                                            const void* key,
-                                            const size_t nkey,
-                                            uint64_t cas,
-                                            uint16_t vbucket);
+static ENGINE_ERROR_CODE bucket_remove(ENGINE_HANDLE* handle,
+                                       const void* cookie,
+                                       const void* key,
+                                       const size_t nkey,
+                                       uint64_t cas,
+                                       uint16_t vbucket);
+static ENGINE_ERROR_CODE inner_bucket_remove(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* key,
+                                             const size_t nkey,
+                                             uint64_t cas,
+                                             uint16_t vbucket);
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* item);
@@ -269,7 +284,7 @@ struct bucket_engine bucket_engine = {
         .initialize       = bucket_initialize,
         .destroy          = bucket_destroy,
         .allocate         = bucket_item_allocate,
-        .remove           = bucket_item_delete,
+        .remove           = bucket_remove,
         .release          = bucket_item_release,
         .get              = bucket_get,
         .store            = bucket_store,
@@ -912,12 +927,28 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
     }
 }
 
-static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
-                                            const void* cookie,
-                                            const void* key,
-                                            const size_t nkey,
-                                            uint64_t cas,
-                                            uint16_t vbucket) {
+static ENGINE_ERROR_CODE bucket_remove(ENGINE_HANDLE* handle,
+                                       const void* cookie,
+                                       const void* key,
+                                       const size_t nkey,
+                                       uint64_t cas,
+                                       uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *ls = get_lua(be);
+    if (ls != NULL) {
+        return to_lua_bucket_remove(handle, cookie, key, nkey,
+                                    cas, vbucket);
+    }
+    return inner_bucket_remove(handle, cookie, key, nkey,
+                               cas, vbucket);
+}
+
+static ENGINE_ERROR_CODE inner_bucket_remove(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* key,
+                                             const size_t nkey,
+                                             uint64_t cas,
+                                             uint16_t vbucket) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
         return e->v1->remove(e->v0, cookie, key, nkey, cas, vbucket);
@@ -1631,6 +1662,9 @@ lua_State *create_lua(const char *lua_path) {
         lua_pushcfunction(lua, from_lua_bucket_store);
         lua_setglobal(lua, "bucket_store");
 
+        lua_pushcfunction(lua, from_lua_bucket_remove);
+        lua_setglobal(lua, "bucket_remove");
+
         luaL_register(lua, "bucket_engine", lua_bucket_engine);
 
         if (lua_path == NULL) {
@@ -1879,9 +1913,66 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
         }
 
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                         "lua bucket_get error: %s",
+                         "lua bucket_store error: %s",
                          lua_tostring(L, -1));
     }
     return ENGINE_DISCONNECT;
 }
+
+/* Implements lua extension:
+ *   bucket_remove(bucket:userdata, cookie:lightuserdata,
+ *                 key: string, cas:userdata,
+ *                 vbucket:int):err
+ */
+int from_lua_bucket_remove(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
+    size_t nkey = 0;
+    const char *key = lua_tolstring(L, 3, &nkey);
+    uint64_t *cas = check_lua_cas(L, 4);
+    uint16_t vbucket = (uint16_t) luaL_checkint(L, 5);
+    ENGINE_ERROR_CODE rv =
+        inner_bucket_remove((ENGINE_HANDLE *) be, cookie,
+                            key, nkey,
+                            cas != NULL ? *cas : 0L,
+                            vbucket);
+    lua_pushinteger(L, rv);
+    return 1;
+}
+
+ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
+                                       const void *cookie,
+                                       const void *key,
+                                       const int nkey,
+                                       uint64_t cas,
+                                       uint16_t vbucket) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *L = get_lua(be);
+    if (L != NULL) {
+        // Call lua...
+        //   bucket_remove(engine, cookie, key, cas, vbucket):err
+        //
+        lua_getglobal(L, "bucket_remove");
+
+        to_lua_push_bucket_engine(L, be);
+        to_lua_push_cookie(L, cookie);
+        lua_pushlstring(L, key, nkey);
+        to_lua_push_cas(L, cas);
+        lua_pushinteger(L, vbucket);
+
+        if (lua_pcall(L, 5, 1, 0) == 0) {
+            if (lua_isnumber(L, -1) == 1) {
+                ENGINE_ERROR_CODE rv = lua_tointeger(L, -1);
+                return rv;
+            }
+        }
+
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "lua bucket_remove error: %s",
+                         lua_tostring(L, -1));
+    }
+    return ENGINE_DISCONNECT;
+}
+
 
