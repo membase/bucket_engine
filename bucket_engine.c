@@ -85,13 +85,13 @@ struct bucket_engine {
                   (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
     } info;
 
-    char *lua_path;
+    char *lua_file;
     lua_ctx *lua_ctx_head;
 };
 
 EXTENSION_LOGGER_DESCRIPTOR *getLogger(void);
 
-lua_State *create_lua(const char *lua_path);
+lua_State *create_lua(const char *lua_file);
 lua_State *get_lua(struct bucket_engine *engine);
 lua_ctx *get_lua_ctx(struct bucket_engine *engine);
 
@@ -898,8 +898,8 @@ static void bucket_destroy(ENGINE_HANDLE* handle) {
         se->default_bucket_name = NULL;
         pthread_mutex_destroy(&se->engines_mutex);
         se->initialized = false;
-        free(se->lua_path);
-        se->lua_path = NULL;
+        free(se->lua_file);
+        se->lua_file = NULL;
         while (se->lua_ctx_head != NULL) {
             lua_ctx *curr = se->lua_ctx_head;
             se->lua_ctx_head = se->lua_ctx_head->next;
@@ -1320,9 +1320,9 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
               .value.dt_bool = &me->auto_create },
             { .key = "config_file",
               .datatype = DT_CONFIGFILE },
-            { .key = "lua_path",
+            { .key = "lua_file",
               .datatype = DT_STRING,
-              .value.dt_string = &me->lua_path },
+              .value.dt_string = &me->lua_file },
             { .key = NULL}
         };
 
@@ -1630,7 +1630,7 @@ lua_ctx *get_lua_ctx(struct bucket_engine *engine) {
     }
     curr = calloc(1, sizeof(lua_ctx));
     if (curr != NULL) {
-        curr->lua = create_lua(engine->lua_path);
+        curr->lua = create_lua(engine->lua_file);
         if (curr->lua != NULL) {
             if (prev != NULL) {
                 prev->next = curr;
@@ -1647,7 +1647,7 @@ lua_ctx *get_lua_ctx(struct bucket_engine *engine) {
     return NULL;
 }
 
-lua_State *create_lua(const char *lua_path) {
+lua_State *create_lua(const char *lua_file) {
     lua_State *lua = lua_open();
     if (lua != NULL) {
         luaL_openlibs(lua);
@@ -1673,17 +1673,17 @@ lua_State *create_lua(const char *lua_path) {
 
         luaL_register(lua, "bucket_engine", lua_bucket_engine);
 
-        if (lua_path == NULL) {
+        if (lua_file == NULL) {
             return lua;
         }
 
-        int rv = luaL_dofile(lua, lua_path);
+        int rv = luaL_dofile(lua, lua_file);
         if (rv == 0) {
             return lua;
         }
 
-        fprintf(stderr, "Failed to create lua with \"%s\"\n",
-                lua_path);
+        fprintf(stderr, "Failed to create lua with lua_file \"%s\"\n",
+                lua_file);
         lua_close(lua);
     }
     return NULL;
