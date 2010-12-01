@@ -7,7 +7,7 @@ function engine_get(engine, cookie, key, vbucket)
      rv, item = engine:allocate(cookie,
                                 key, string.len(data), 0, 0)
      if rv == 0 then
-       rv = engine:set_item_data(cookie, item, data)
+       rv = engine:set_item_data(cookie, item, 0, data)
        if rv == 0 then
          return 0, item
        end
@@ -21,7 +21,7 @@ function engine_get(engine, cookie, key, vbucket)
      rv, item = engine:allocate(cookie,
                                 key, string.len(data), 0, 0)
      if rv == 0 then
-       rv = engine:set_item_data(cookie, item, data)
+       rv = engine:set_item_data(cookie, item, 0, data)
        if rv == 0 then
          return 0, item
        end

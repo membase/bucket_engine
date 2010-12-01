@@ -1753,7 +1753,7 @@ bool to_lua_push_bucket_engine(lua_State *L, struct bucket_engine *be) {
 }
 
 const void *check_lua_cookie(lua_State *L, int narg) {
-    luaL_argcheck(L, lua_islightuserdata(L, 2) == 1, narg,
+    luaL_argcheck(L, lua_islightuserdata(L, narg) == 1, narg,
                   "cookie expected");
     const void *cookie = lua_touserdata(L, narg);
     return cookie;
@@ -2021,25 +2021,28 @@ int from_lua_engine_allocate(lua_State *L) {
 
 /* Implements lua extension:
  *   item_set_data(engine:userdata, cookie:lightuserdata,
- *                 item:userdata, data:string):err
+ *                 item:userdata, start_index:int, data:string):err
  */
 int from_lua_engine_set_item_data(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     item **itm = check_lua_item(L, 3);
-    luaL_argcheck(L, lua_isstring(L, 4) == 1, 3, "string data expected");
+    int start_index = luaL_checkint(L, 4);
+    luaL_argcheck(L, start_index >= 0, 4, "zero-based, positive byte index expected");
+    luaL_argcheck(L, lua_isstring(L, 5) == 1, 5, "string data expected");
     size_t ndata = 0;
-    const char *data = lua_tolstring(L, 4, &ndata);
+    const char *data = lua_tolstring(L, 5, &ndata);
 
     if (itm != NULL &&
+        start_index >= 0 &&
         data != NULL &&
         ndata > 0) {
         item_info info = { .nvalue = 1 };
 
         if (bucket_get_item_info((ENGINE_HANDLE *) be, cookie,
                                  *itm, &info) == true) {
-            if (info.nbytes >= ndata) {
-                memcpy((char *) info.value[0].iov_base,
+            if (info.nbytes >= (start_index + ndata)) {
+                memcpy((char *) info.value[0].iov_base + start_index,
                        data, ndata);
 
                 lua_pushinteger(L, 0);
