@@ -91,6 +91,8 @@ struct bucket_engine {
 
 EXTENSION_LOGGER_DESCRIPTOR *getLogger(void);
 
+// --------------------------------------------------
+
 lua_State *create_lua(const char *lua_file);
 lua_State *get_lua(struct bucket_engine *engine);
 lua_ctx *get_lua_ctx(struct bucket_engine *engine);
@@ -147,6 +149,8 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"bucket_allocate", from_lua_bucket_allocate},
     {NULL, NULL}
 };
+
+// --------------------------------------------------
 
 MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
@@ -1600,6 +1604,8 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     return rv;
 }
 
+// --------------------------------------------------
+
 lua_State *get_lua(struct bucket_engine *engine) {
     lua_ctx *lc = get_lua_ctx(engine);
     if (lc != NULL) {
@@ -1620,7 +1626,7 @@ lua_ctx *get_lua_ctx(struct bucket_engine *engine) {
     lua_ctx *prev = NULL;
     lua_ctx *curr = engine->lua_ctx_head;
     while (curr != NULL) {
-        if (curr->thread_id == thread_id) {
+        if (pthread_equal(curr->thread_id, thread_id) == 0) {
             assert(curr->lua);
             pthread_mutex_unlock(&engine->engines_mutex);
             return curr;
