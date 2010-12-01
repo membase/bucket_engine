@@ -1998,8 +1998,8 @@ int from_lua_bucket_allocate(lua_State *L) {
     size_t nkey = 0;
     const char *key = lua_tolstring(L, 3, &nkey);
     size_t nbytes = luaL_checkint(L, 4);
-    int flags = luaL_checkint(L, 4);
-    rel_time_t exptime = luaL_checkint(L, 5);
+    int flags = luaL_checkint(L, 5);
+    rel_time_t exptime = luaL_checkint(L, 6);
     item *itm = NULL;
     ENGINE_ERROR_CODE rv =
         bucket_item_allocate((ENGINE_HANDLE *) be, cookie, &itm,
