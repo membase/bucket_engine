@@ -115,41 +115,41 @@ item **from_lua_item(lua_State *L, int narg);
 item **check_lua_item(lua_State *L, int narg);
 bool to_lua_push_item(lua_State *L, item *item);
 
-int from_lua_bucket_get(lua_State *L);
-ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
+int from_lua_engine_get(lua_State *L);
+ENGINE_ERROR_CODE to_lua_engine_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** it,
                                     const void* key,
                                     const int nkey,
                                     uint16_t vbucket);
 
-int from_lua_bucket_store(lua_State *L);
-ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
+int from_lua_engine_store(lua_State *L);
+ENGINE_ERROR_CODE to_lua_engine_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* itm,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket);
 
-int from_lua_bucket_remove(lua_State *L);
-ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
+int from_lua_engine_remove(lua_State *L);
+ENGINE_ERROR_CODE to_lua_engine_remove(ENGINE_HANDLE* handle,
                                        const void *cookie,
                                        const void *key,
                                        const int nkey,
                                        uint64_t cas,
                                        uint16_t vbucket);
 
-int from_lua_bucket_allocate(lua_State *L);
+int from_lua_engine_allocate(lua_State *L);
 
-int from_lua_bucket_set_item_data(lua_State *L);
+int from_lua_engine_set_item_data(lua_State *L);
 
 static const struct luaL_reg lua_bucket_engine[] = {
     {"log", from_lua_log},
-    {"get", from_lua_bucket_get},
-    {"store", from_lua_bucket_store},
-    {"remove", from_lua_bucket_remove},
-    {"allocate", from_lua_bucket_allocate},
-    {"set_item_data", from_lua_bucket_set_item_data},
+    {"get", from_lua_engine_get},
+    {"store", from_lua_engine_store},
+    {"remove", from_lua_engine_remove},
+    {"allocate", from_lua_engine_allocate},
+    {"set_item_data", from_lua_engine_set_item_data},
     {NULL, NULL}
 };
 
@@ -946,7 +946,7 @@ static ENGINE_ERROR_CODE bucket_remove(ENGINE_HANDLE* handle,
     struct bucket_engine *be = get_handle(handle);
     lua_State *ls = get_lua(be);
     if (ls != NULL) {
-        return to_lua_bucket_remove(handle, cookie, key, nkey,
+        return to_lua_engine_remove(handle, cookie, key, nkey,
                                     cas, vbucket);
     }
     return inner_bucket_remove(handle, cookie, key, nkey,
@@ -985,7 +985,7 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
     struct bucket_engine *be = get_handle(handle);
     lua_State *ls = get_lua(be);
     if (ls != NULL) {
-        return to_lua_bucket_get(handle, cookie, itm, key, nkey, vbucket);
+        return to_lua_engine_get(handle, cookie, itm, key, nkey, vbucket);
     }
     return inner_bucket_get(handle, cookie, itm, key, nkey, vbucket);
 }
@@ -1149,7 +1149,7 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
     struct bucket_engine *be = get_handle(handle);
     lua_State *ls = get_lua(be);
     if (ls != NULL) {
-        return to_lua_bucket_store(handle, cookie, itm, cas,
+        return to_lua_engine_store(handle, cookie, itm, cas,
                                    operation, vbucket);
     }
     return inner_bucket_store(handle, cookie, itm, cas,
@@ -1664,7 +1664,7 @@ lua_State *create_lua(const char *lua_file) {
         luaL_newmetatable(lua, "membase.cas");
         luaL_newmetatable(lua, "membase.item");
 
-        if (luaL_newmetatable(lua, "membase.bucket_engine") == 1) {
+        if (luaL_newmetatable(lua, "membase.engine") == 1) {
             lua_pushstring(lua, "__index");
             lua_pushvalue(lua, -2); // pushes the metatable
             lua_settable(lua, -3);  // metatable.__index = metatable
@@ -1675,13 +1675,13 @@ lua_State *create_lua(const char *lua_file) {
         lua_pushcfunction(lua, from_lua_log);
         lua_setglobal(lua, "log");
 
-        lua_pushcfunction(lua, from_lua_bucket_get);
+        lua_pushcfunction(lua, from_lua_engine_get);
         lua_setglobal(lua, "engine_get");
 
-        lua_pushcfunction(lua, from_lua_bucket_store);
+        lua_pushcfunction(lua, from_lua_engine_store);
         lua_setglobal(lua, "engine_store");
 
-        lua_pushcfunction(lua, from_lua_bucket_remove);
+        lua_pushcfunction(lua, from_lua_engine_remove);
         lua_setglobal(lua, "engine_remove");
 
         if (lua_file == NULL) {
@@ -1733,9 +1733,9 @@ int from_lua_log(lua_State *L) {
 
 struct bucket_engine *check_lua_bucket_engine(lua_State *L, int narg) {
     struct bucket_engine **ud = luaL_checkudata(L, narg,
-                                                "membase.bucket_engine");
+                                                "membase.engine");
     luaL_argcheck(L, ud != NULL && *ud != NULL, narg,
-                  "`membase.bucket_engine' expected");
+                  "`membase.engine' expected");
     return *ud;
 }
 
@@ -1745,7 +1745,7 @@ bool to_lua_push_bucket_engine(lua_State *L, struct bucket_engine *be) {
         lua_newuserdata(L, sizeof(struct bucket_engine *));
     if (ud != NULL) {
         *ud = be;
-        luaL_getmetatable(L, "membase.bucket_engine");
+        luaL_getmetatable(L, "membase.engine");
         lua_setmetatable(L, -2);
         return true;
     }
@@ -1807,10 +1807,10 @@ bool to_lua_push_item(lua_State *L, item *it) {
 }
 
 /* Implements lua extension:
- *   bucket_get(bucket:userdata, cookie:lightuserdata,
+ *   engine_get(engine:userdata, cookie:lightuserdata,
  *              key:string, vbucket:int):err, item
  */
-int from_lua_bucket_get(lua_State *L) {
+int from_lua_engine_get(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
@@ -1831,7 +1831,7 @@ int from_lua_bucket_get(lua_State *L) {
     return 1;
 }
 
-ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
+ENGINE_ERROR_CODE to_lua_engine_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** it,
                                     const void* key,
@@ -1841,7 +1841,7 @@ ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
     lua_State *L = get_lua(be);
     if (L != NULL) {
         // Call lua...
-        //   bucket_get(engine, cookie, key:string, vbucket):err, item
+        //   engine_get(engine, cookie, key:string, vbucket):err, item
         //
         lua_getglobal(L, "engine_get");
 
@@ -1864,18 +1864,18 @@ ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
         }
 
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                         "lua bucket_get error: %s",
+                         "lua engine_get error: %s",
                          lua_tostring(L, -1));
     }
     return ENGINE_DISCONNECT;
 }
 
 /* Implements lua extension:
- *   bucket_store(bucket:userdata, cookie:lightuserdata,
+ *   engine_store(engine:userdata, cookie:lightuserdata,
  *                item:userdata, cas:userdata,
  *                operation:int, vbucket:int):err, cas
  */
-int from_lua_bucket_store(lua_State *L) {
+int from_lua_engine_store(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     item **itm = check_lua_item(L, 3);
@@ -1891,7 +1891,7 @@ int from_lua_bucket_store(lua_State *L) {
     return 2;
 }
 
-ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
+ENGINE_ERROR_CODE to_lua_engine_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* itm,
                                       uint64_t *cas,
@@ -1901,7 +1901,7 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
     lua_State *L = get_lua(be);
     if (L != NULL) {
         // Call lua...
-        //   bucket_store(engine, cookie, item, cas, operation, vbucket):err, cas
+        //   engine_store(engine, cookie, item, cas, operation, vbucket):err, cas
         //
         lua_getglobal(L, "engine_store");
 
@@ -1930,18 +1930,18 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
         }
 
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                         "lua bucket_store error: %s",
+                         "lua engine_store error: %s",
                          lua_tostring(L, -1));
     }
     return ENGINE_DISCONNECT;
 }
 
 /* Implements lua extension:
- *   bucket_remove(bucket:userdata, cookie:lightuserdata,
+ *   engine_remove(engine:userdata, cookie:lightuserdata,
  *                 key:string, cas:userdata,
  *                 vbucket:int):err
  */
-int from_lua_bucket_remove(lua_State *L) {
+int from_lua_engine_remove(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
@@ -1958,7 +1958,7 @@ int from_lua_bucket_remove(lua_State *L) {
     return 1;
 }
 
-ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
+ENGINE_ERROR_CODE to_lua_engine_remove(ENGINE_HANDLE* handle,
                                        const void *cookie,
                                        const void *key,
                                        const int nkey,
@@ -1968,7 +1968,7 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
     lua_State *L = get_lua(be);
     if (L != NULL) {
         // Call lua...
-        //   bucket_remove(engine, cookie, key, cas, vbucket):err
+        //   engine_remove(engine, cookie, key, cas, vbucket):err
         //
         lua_getglobal(L, "engine_remove");
 
@@ -1986,17 +1986,17 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
         }
 
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                         "lua bucket_remove error: %s",
+                         "lua engine_remove error: %s",
                          lua_tostring(L, -1));
     }
     return ENGINE_DISCONNECT;
 }
 
 /* Implements lua extension:
- *   bucket_allocate(bucket:userdata, cookie:lightuserdata,
+ *   engine_allocate(engine:userdata, cookie:lightuserdata,
  *                   key:string, nbytes, flags, exptime):err, item
  */
-int from_lua_bucket_allocate(lua_State *L) {
+int from_lua_engine_allocate(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
@@ -2020,10 +2020,10 @@ int from_lua_bucket_allocate(lua_State *L) {
 }
 
 /* Implements lua extension:
- *   item_set_data(bucket:userdata, cookie:lightuserdata,
+ *   item_set_data(engine:userdata, cookie:lightuserdata,
  *                 item:userdata, data:string):err
  */
-int from_lua_bucket_set_item_data(lua_State *L) {
+int from_lua_engine_set_item_data(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     item **itm = check_lua_item(L, 3);

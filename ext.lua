@@ -17,13 +17,13 @@ function engine_get(engine, cookie, key, vbucket)
 
   nget = nget + 1
 
-  -- log(5, "lua BUCKET_GET for key: " .. key .. " vbucket: " .. vbucket)
+  -- log(5, "lua ENGINE_GET for key: " .. key .. " vbucket: " .. vbucket)
   return engine:get(cookie, key, vbucket)
 end
 
 function engine_store(engine, cookie, item, cas, operation, vbucket)
-  -- log(5, "lua BUCKET_STORE, vbucket: " .. vbucket)
+  -- log(5, "lua ENGINE_STORE, vbucket: " .. vbucket)
   return engine:store(cookie, item, cas, operation, vbucket)
 end
 
-log(5, "lua BUCKET_ENGINE ext.lua loaded")
+log(5, "lua ENGINE ext.lua loaded")
