@@ -141,12 +141,15 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
 
 int from_lua_bucket_allocate(lua_State *L);
 
+int from_lua_bucket_set_item_data(lua_State *L);
+
 static const struct luaL_reg lua_bucket_engine[] = {
     {"log", from_lua_log},
-    {"bucket_get", from_lua_bucket_get},
-    {"bucket_store", from_lua_bucket_store},
-    {"bucket_remove", from_lua_bucket_remove},
-    {"bucket_allocate", from_lua_bucket_allocate},
+    {"get", from_lua_bucket_get},
+    {"store", from_lua_bucket_store},
+    {"remove", from_lua_bucket_remove},
+    {"allocate", from_lua_bucket_allocate},
+    {"set_item_data", from_lua_bucket_set_item_data},
     {NULL, NULL}
 };
 
@@ -1658,26 +1661,28 @@ lua_State *create_lua(const char *lua_file) {
     if (lua != NULL) {
         luaL_openlibs(lua);
 
-        luaL_newmetatable(lua, "membase.bucket_engine");
         luaL_newmetatable(lua, "membase.cas");
         luaL_newmetatable(lua, "membase.item");
+
+        if (luaL_newmetatable(lua, "membase.bucket_engine") == 1) {
+            lua_pushstring(lua, "__index");
+            lua_pushvalue(lua, -2); // pushes the metatable
+            lua_settable(lua, -3);  // metatable.__index = metatable
+
+            luaL_register(lua, NULL, lua_bucket_engine);
+        }
 
         lua_pushcfunction(lua, from_lua_log);
         lua_setglobal(lua, "log");
 
         lua_pushcfunction(lua, from_lua_bucket_get);
-        lua_setglobal(lua, "bucket_get");
+        lua_setglobal(lua, "engine_get");
 
         lua_pushcfunction(lua, from_lua_bucket_store);
-        lua_setglobal(lua, "bucket_store");
+        lua_setglobal(lua, "engine_store");
 
         lua_pushcfunction(lua, from_lua_bucket_remove);
-        lua_setglobal(lua, "bucket_remove");
-
-        lua_pushcfunction(lua, from_lua_bucket_allocate);
-        lua_setglobal(lua, "bucket_allocate");
-
-        luaL_register(lua, "bucket_engine", lua_bucket_engine);
+        lua_setglobal(lua, "engine_remove");
 
         if (lua_file == NULL) {
             return lua;
@@ -1838,7 +1843,7 @@ ENGINE_ERROR_CODE to_lua_bucket_get(ENGINE_HANDLE* handle,
         // Call lua...
         //   bucket_get(engine, cookie, key:string, vbucket):err, item
         //
-        lua_getglobal(L, "bucket_get");
+        lua_getglobal(L, "engine_get");
 
         to_lua_push_bucket_engine(L, be);
         to_lua_push_cookie(L, cookie);
@@ -1898,7 +1903,7 @@ ENGINE_ERROR_CODE to_lua_bucket_store(ENGINE_HANDLE* handle,
         // Call lua...
         //   bucket_store(engine, cookie, item, cas, operation, vbucket):err, cas
         //
-        lua_getglobal(L, "bucket_store");
+        lua_getglobal(L, "engine_store");
 
         to_lua_push_bucket_engine(L, be);
         to_lua_push_cookie(L, cookie);
@@ -1965,7 +1970,7 @@ ENGINE_ERROR_CODE to_lua_bucket_remove(ENGINE_HANDLE* handle,
         // Call lua...
         //   bucket_remove(engine, cookie, key, cas, vbucket):err
         //
-        lua_getglobal(L, "bucket_remove");
+        lua_getglobal(L, "engine_remove");
 
         to_lua_push_bucket_engine(L, be);
         to_lua_push_cookie(L, cookie);
@@ -2011,5 +2016,44 @@ int from_lua_bucket_allocate(lua_State *L) {
             return 2;
         }
     }
+    return 1;
+}
+
+/* Implements lua extension:
+ *   item_set_data(bucket:userdata, cookie:lightuserdata,
+ *                 item:userdata, data:string):err
+ */
+int from_lua_bucket_set_item_data(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    item **itm = check_lua_item(L, 3);
+    luaL_argcheck(L, lua_isstring(L, 4) == 1, 3, "string data expected");
+    size_t ndata = 0;
+    const char *data = lua_tolstring(L, 4, &ndata);
+
+    if (itm != NULL &&
+        data != NULL &&
+        ndata > 0) {
+        item_info info = { .nvalue = 1 };
+
+        if (bucket_get_item_info((ENGINE_HANDLE *) be, cookie,
+                                 *itm, &info) == true) {
+            if (info.nbytes >= ndata) {
+                memcpy((char *) info.value[0].iov_base,
+                       data, ndata);
+
+                lua_pushinteger(L, 0);
+                return 1;
+            }
+
+            lua_pushinteger(L, 3);
+            return 1;
+        }
+
+        lua_pushinteger(L, 2);
+        return 1;
+    }
+
+    lua_pushinteger(L, 1);
     return 1;
 }
