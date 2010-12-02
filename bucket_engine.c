@@ -1837,6 +1837,7 @@ int from_lua_engine_get(lua_State *L) {
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
     size_t nkey = 0;
     const char *key = lua_tolstring(L, 3, &nkey);
+    luaL_argcheck(L, nkey > 0, 3, "non-empty key expected");
     uint16_t vbucket = (uint16_t) luaL_checkint(L, 4);
     item *it = NULL;
     ENGINE_ERROR_CODE rv =
@@ -1968,6 +1969,7 @@ int from_lua_engine_remove(lua_State *L) {
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
     size_t nkey = 0;
     const char *key = lua_tolstring(L, 3, &nkey);
+    luaL_argcheck(L, nkey > 0, 3, "non-empty key expected");
     uint64_t *cas = check_lua_cas(L, 4);
     uint16_t vbucket = (uint16_t) luaL_checkint(L, 5);
     ENGINE_ERROR_CODE rv =
@@ -2066,6 +2068,7 @@ int from_lua_engine_allocate(lua_State *L) {
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");
     size_t nkey = 0;
     const char *key = lua_tolstring(L, 3, &nkey);
+    luaL_argcheck(L, nkey > 0, 3, "non-empty key expected");
     size_t nbytes = luaL_checkint(L, 4);
     int flags = luaL_checkint(L, 5);
     rel_time_t exptime = luaL_checkint(L, 6);
@@ -2092,7 +2095,7 @@ int from_lua_engine_set_item_data(lua_State *L) {
     const void *cookie = check_lua_cookie(L, 2);
     item **itm = check_lua_item(L, 3);
     int start_index = luaL_checkint(L, 4);
-    luaL_argcheck(L, start_index >= 0, 4, "zero-based, positive byte index expected");
+    luaL_argcheck(L, start_index >= 0, 4, "0-based byte index expected");
     luaL_argcheck(L, lua_isstring(L, 5) == 1, 5, "string data expected");
     size_t ndata = 0;
     const char *data = lua_tolstring(L, 5, &ndata);
@@ -2106,7 +2109,7 @@ int from_lua_engine_set_item_data(lua_State *L) {
         if (bucket_get_item_info((ENGINE_HANDLE *) be, cookie,
                                  *itm, &info) == true) {
             if (info.nbytes >= (start_index + ndata)) {
-                memcpy((char *) info.value[0].iov_base + start_index,
+                memcpy(((char *) info.value[0].iov_base) + start_index,
                        data, ndata);
 
                 lua_pushinteger(L, 0);
