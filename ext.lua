@@ -71,6 +71,8 @@ function engine_store(engine, cookie, item, cas, operation, vbucket)
 end
 
 function engine_flush_all(engine, cookie, when)
+  -- log(5, "lua engine flush " .. engine:name(cookie))
+
   return engine:flush_all(cookie, when)
 end
 

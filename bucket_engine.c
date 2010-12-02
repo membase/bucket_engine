@@ -145,8 +145,9 @@ ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
                                           time_t when);
 
 int from_lua_engine_allocate_item(lua_State *L);
-
 int from_lua_engine_set_item_data(lua_State *L);
+
+int from_lua_engine_name(lua_State *L);
 
 static const struct luaL_reg lua_bucket_engine[] = {
     {"log", from_lua_log},
@@ -156,6 +157,7 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"flush_all", from_lua_engine_flush_all},
     {"allocate_item", from_lua_engine_allocate_item},
     {"set_item_data", from_lua_engine_set_item_data},
+    {"name", from_lua_engine_name},
     {NULL, NULL}
 };
 
@@ -2127,3 +2129,22 @@ int from_lua_engine_set_item_data(lua_State *L) {
     lua_pushinteger(L, 1);
     return 1;
 }
+
+/* Implements lua extension:
+ *   engine_name(engine:userdata, cookie:lightuserdata):string
+ */
+int from_lua_engine_name(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+
+    proxied_engine_handle_t *peh =
+        get_engine_handle((ENGINE_HANDLE *) be, cookie);
+    if (peh != NULL &&
+        peh->name != NULL &&
+        peh->state == STATE_RUNNING) {
+        lua_pushstring(L, peh->name);
+        return 1;
+    }
+    return 0;
+}
+
