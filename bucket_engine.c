@@ -144,7 +144,7 @@ ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           time_t when);
 
-int from_lua_engine_allocate(lua_State *L);
+int from_lua_engine_allocate_item(lua_State *L);
 
 int from_lua_engine_set_item_data(lua_State *L);
 
@@ -154,7 +154,7 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"store", from_lua_engine_store},
     {"remove", from_lua_engine_remove},
     {"flush_all", from_lua_engine_flush_all},
-    {"allocate", from_lua_engine_allocate},
+    {"allocate_item", from_lua_engine_allocate_item},
     {"set_item_data", from_lua_engine_set_item_data},
     {NULL, NULL}
 };
@@ -2059,10 +2059,10 @@ ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
 }
 
 /* Implements lua extension:
- *   engine_allocate(engine:userdata, cookie:lightuserdata,
- *                   key:string, nbytes, flags, exptime):err, item
+ *   engine_allocate_item(engine:userdata, cookie:lightuserdata,
+ *                        key:string, nbytes, flags, exptime):err, item
  */
-int from_lua_engine_allocate(lua_State *L) {
+int from_lua_engine_allocate_item(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
     const void *cookie = check_lua_cookie(L, 2);
     luaL_argcheck(L, lua_isstring(L, 3) == 1, 3, "string key expected");

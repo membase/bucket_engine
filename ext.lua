@@ -33,8 +33,8 @@ function engine_get(engine, cookie, key, vbucket)
 
   if key == "nget" then
      data = tostring(nget)
-     rv, item = engine:allocate(cookie,
-                                key, string.len(data) + 2, 0, 0)
+     rv, item = engine:allocate_item(cookie, key,
+                                     string.len(data) + 2, 0, 0)
      if rv == 0 then
        rv = engine:set_item_data(cookie, item, 0, data)
        if rv == 0 then
@@ -47,8 +47,8 @@ function engine_get(engine, cookie, key, vbucket)
 
   if key == "nstore" then
      data = tostring(nstore)
-     rv, item = engine:allocate(cookie,
-                                key, string.len(data) + 2, 0, 0)
+     rv, item = engine:allocate_item(cookie, key,
+                                     string.len(data) + 2, 0, 0)
      if rv == 0 then
        rv = engine:set_item_data(cookie, item, 0, data)
        if rv == 0 then
