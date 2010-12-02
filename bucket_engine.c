@@ -146,6 +146,7 @@ ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
 
 int from_lua_engine_allocate_item(lua_State *L);
 int from_lua_engine_set_item_data(lua_State *L);
+int from_lua_engine_get_item_data(lua_State *L);
 
 int from_lua_engine_name(lua_State *L);
 
@@ -157,6 +158,7 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"flush_all", from_lua_engine_flush_all},
     {"allocate_item", from_lua_engine_allocate_item},
     {"set_item_data", from_lua_engine_set_item_data},
+    {"get_item_data", from_lua_engine_get_item_data},
     {"name", from_lua_engine_name},
     {NULL, NULL}
 };
@@ -2120,6 +2122,72 @@ int from_lua_engine_set_item_data(lua_State *L) {
 
             lua_pushinteger(L, 3);
             return 1;
+        }
+
+        lua_pushinteger(L, 2);
+        return 1;
+    }
+
+    lua_pushinteger(L, 1);
+    return 1;
+}
+
+/* Implements lua extension:
+ *   item_get_data(engine:userdata, cookie:lightuserdata,
+ *                 item:userdata, start_index:int, end_index:int):
+ *     err, key, flags, exptime, cas, nbytes, data_slice
+ */
+int from_lua_engine_get_item_data(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    item **itm = check_lua_item(L, 3);
+    int start_index = luaL_checkint(L, 4);
+    luaL_argcheck(L, start_index >= 0, 4,
+                  "0-based byte slice start index expected");
+    int end_index = luaL_checkint(L, 5); // Inclusive.
+    luaL_argcheck(L, end_index < 0 ||
+                     end_index >= start_index, 5,
+                  "0-based byte slice end index expected");
+
+    if (itm != NULL) {
+        item_info info = { .nvalue = 1 };
+
+        if (bucket_get_item_info((ENGINE_HANDLE *) be, cookie,
+                                 *itm, &info) == true) {
+            lua_pushinteger(L, 0);
+            lua_pushlstring(L, info.key, info.nkey);
+            lua_pushinteger(L, info.flags);
+            lua_pushinteger(L, info.exptime);
+            to_lua_push_cas(L, info.cas);
+            lua_pushinteger(L, info.nbytes);
+
+            if (start_index < (int) info.nbytes) {
+                if (end_index < 0) {
+                    end_index = info.nbytes + end_index;
+                }
+                if (end_index < 0) {
+                    end_index = 0;
+                }
+
+                int nslice = end_index - start_index + 1;
+                if (nslice < 0) {
+                    nslice = 0;
+                }
+
+                if (start_index + nslice > (int) info.nbytes) {
+                    nslice = info.nbytes - start_index;
+                }
+
+                char *base = (char *) info.value[0].iov_base;
+                if (base != NULL &&
+                    nslice > 0) {
+                    lua_pushlstring(L, base + start_index, nslice);
+                    return 7;
+                }
+            }
+
+            // Return the info and a nil data slice.
+            return 6;
         }
 
         lua_pushinteger(L, 2);
