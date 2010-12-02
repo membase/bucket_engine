@@ -139,6 +139,11 @@ ENGINE_ERROR_CODE to_lua_engine_remove(ENGINE_HANDLE* handle,
                                        uint64_t cas,
                                        uint16_t vbucket);
 
+int from_lua_engine_flush_all(lua_State *L);
+ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
+                                          const void* cookie,
+                                          time_t when);
+
 int from_lua_engine_allocate(lua_State *L);
 
 int from_lua_engine_set_item_data(lua_State *L);
@@ -148,6 +153,7 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"get", from_lua_engine_get},
     {"store", from_lua_engine_store},
     {"remove", from_lua_engine_remove},
+    {"flush_all", from_lua_engine_flush_all},
     {"allocate", from_lua_engine_allocate},
     {"set_item_data", from_lua_engine_set_item_data},
     {NULL, NULL}
@@ -238,8 +244,10 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            uint64_t *cas,
                                            uint64_t *result,
                                            uint16_t vbucket);
-static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
-                                      const void* cookie, time_t when);
+static ENGINE_ERROR_CODE bucket_flush_all(ENGINE_HANDLE* handle,
+                                          const void* cookie, time_t when);
+static ENGINE_ERROR_CODE inner_bucket_flush_all(ENGINE_HANDLE* handle,
+                                                const void* cookie, time_t when);
 static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
                                                   const char *cfg_str);
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
@@ -299,7 +307,7 @@ struct bucket_engine bucket_engine = {
         .get              = bucket_get,
         .store            = bucket_store,
         .arithmetic       = bucket_arithmetic,
-        .flush            = bucket_flush,
+        .flush            = bucket_flush_all,
         .get_stats        = bucket_get_stats,
         .reset_stats      = bucket_reset_stats,
         .get_stats_struct = bucket_get_stats_struct,
@@ -1192,8 +1200,18 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
     }
 }
 
-static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
-                                      const void* cookie, time_t when) {
+static ENGINE_ERROR_CODE bucket_flush_all(ENGINE_HANDLE* handle,
+                                          const void* cookie, time_t when) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *ls = get_lua(be);
+    if (ls != NULL) {
+        return to_lua_engine_flush_all(handle, cookie, when);
+    }
+    return inner_bucket_flush_all(handle, cookie, when);
+}
+
+static ENGINE_ERROR_CODE inner_bucket_flush_all(ENGINE_HANDLE* handle,
+                                                const void* cookie, time_t when) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
       return e->v1->flush(e->v0, cookie, when);
@@ -1684,6 +1702,9 @@ lua_State *create_lua(const char *lua_file) {
         lua_pushcfunction(lua, from_lua_engine_remove);
         lua_setglobal(lua, "engine_remove");
 
+        lua_pushcfunction(lua, from_lua_engine_flush_all);
+        lua_setglobal(lua, "engine_flush_all");
+
         if (lua_file == NULL) {
             return lua;
         }
@@ -1987,6 +2008,49 @@ ENGINE_ERROR_CODE to_lua_engine_remove(ENGINE_HANDLE* handle,
 
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
                          "lua engine_remove error: %s",
+                         lua_tostring(L, -1));
+    }
+    return ENGINE_DISCONNECT;
+}
+
+/* Implements lua extension:
+ *   engine_flush_all(engine:userdata, cookie:lightuserdata,
+ *                    when:int):err
+ */
+int from_lua_engine_flush_all(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    time_t when = (time_t) luaL_checkint(L, 3);
+    ENGINE_ERROR_CODE rv =
+        inner_bucket_flush_all((ENGINE_HANDLE *) be, cookie, when);
+    lua_pushinteger(L, rv);
+    return 1;
+}
+
+ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
+                                          const void *cookie,
+                                          time_t when) {
+    struct bucket_engine *be = get_handle(handle);
+    lua_State *L = get_lua(be);
+    if (L != NULL) {
+        // Call lua...
+        //   engine_flush_all(engine, cookie, when):err
+        //
+        lua_getglobal(L, "engine_flush_all");
+
+        to_lua_push_bucket_engine(L, be);
+        to_lua_push_cookie(L, cookie);
+        lua_pushinteger(L, when);
+
+        if (lua_pcall(L, 3, 1, 0) == 0) {
+            if (lua_isnumber(L, -1) == 1) {
+                ENGINE_ERROR_CODE rv = lua_tointeger(L, -1);
+                return rv;
+            }
+        }
+
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "lua engine_flush_all error: %s",
                          lua_tostring(L, -1));
     }
     return ENGINE_DISCONNECT;

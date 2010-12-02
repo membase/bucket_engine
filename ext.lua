@@ -43,4 +43,8 @@ function engine_store(engine, cookie, item, cas, operation, vbucket)
   return engine:store(cookie, item, cas, operation, vbucket)
 end
 
+function engine_flush_all(engine, cookie, when)
+  return engine:flush_all(cookie, when)
+end
+
 log(5, "lua ENGINE ext.lua loaded")
