@@ -94,6 +94,8 @@ EXTENSION_LOGGER_DESCRIPTOR *getLogger(void);
 // --------------------------------------------------
 
 lua_State *create_lua(const char *lua_file);
+void init_lua_constants(lua_State *lua);
+
 lua_State *get_lua(struct bucket_engine *engine);
 lua_ctx *get_lua_ctx(struct bucket_engine *engine);
 
@@ -1678,6 +1680,47 @@ lua_ctx *get_lua_ctx(struct bucket_engine *engine) {
     return NULL;
 }
 
+void init_lua_constants(lua_State *lua) {
+#define nreg(CCC, SSS) lua_pushinteger(lua, CCC); lua_setglobal(lua, SSS);
+#define lreg(CCC) nreg(CCC, #CCC);
+
+    lreg(ENGINE_SUCCESS);
+    lreg(ENGINE_KEY_ENOENT);
+    lreg(ENGINE_KEY_EEXISTS);
+    lreg(ENGINE_ENOMEM);
+    lreg(ENGINE_NOT_STORED);
+    lreg(ENGINE_EINVAL);
+    lreg(ENGINE_ENOTSUP);
+    lreg(ENGINE_EWOULDBLOCK);
+    lreg(ENGINE_E2BIG);
+    lreg(ENGINE_WANT_MORE);
+    lreg(ENGINE_DISCONNECT);
+    lreg(ENGINE_EACCESS);
+    lreg(ENGINE_NOT_MY_VBUCKET);
+    lreg(ENGINE_TMPFAIL);
+    lreg(ENGINE_FAILED);
+
+    lreg(OPERATION_ADD);
+    lreg(OPERATION_SET);
+    lreg(OPERATION_REPLACE);
+    lreg(OPERATION_APPEND);
+    lreg(OPERATION_PREPEND);
+    lreg(OPERATION_CAS);
+
+    lreg(EXTENSION_LOG_DETAIL);
+    lreg(EXTENSION_LOG_DEBUG);
+    lreg(EXTENSION_LOG_INFO);
+    lreg(EXTENSION_LOG_WARNING);
+
+    nreg(EXTENSION_LOG_DETAIL,  "LOG_DETAIL");
+    nreg(EXTENSION_LOG_DEBUG,   "LOG_DEBUG");
+    nreg(EXTENSION_LOG_INFO,    "LOG_INFO");
+    nreg(EXTENSION_LOG_WARNING, "LOG_WARNING");
+
+#undef lreg
+#undef nreg
+}
+
 lua_State *create_lua(const char *lua_file) {
     lua_State *lua = lua_open();
     if (lua != NULL) {
@@ -1708,6 +1751,8 @@ lua_State *create_lua(const char *lua_file) {
 
         lua_pushcfunction(lua, from_lua_engine_flush_all);
         lua_setglobal(lua, "engine_flush_all");
+
+        init_lua_constants(lua);
 
         if (lua_file == NULL) {
             return lua;
