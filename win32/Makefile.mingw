@@ -21,11 +21,11 @@ LIB=$(LOCALLIB) -L${MEMCACHED}/lib
 INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I. $(LOCALINC)
 GENHASH= ${MEMCACHED}/.libs/genhash.o
 GENFILES=.libs/config_version.h
-CPPFLAGS= -O2 ${INCLUDE} -Wall
+CPPFLAGS= -g -O2 ${INCLUDE} -Wall
 
 all: ${BINARIES}
 
-CFLAGS = -std=gnu99 -DNDEBUG \
+CFLAGS = -std=gnu99 -DNDEBUG -g \
            -fno-strict-aliasing -Wstrict-prototypes -Wmissing-prototypes \
            -Wmissing-declarations -Wredundant-decls \
 
