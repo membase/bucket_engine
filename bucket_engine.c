@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <dlfcn.h>
+#include <unistd.h>
 #include <string.h>
 #include <pthread.h>
 #ifndef WIN32
@@ -101,8 +102,6 @@ lua_ctx *get_lua_ctx(struct bucket_engine *engine);
 
 void *get_lua_userdata(lua_State *L, int ud, const char *tname);
 
-int from_lua_log(lua_State *L);
-
 struct bucket_engine *check_lua_bucket_engine(lua_State *L, int narg);
 bool to_lua_push_bucket_engine(lua_State *L, struct bucket_engine *be);
 
@@ -153,7 +152,6 @@ int from_lua_engine_get_item_data(lua_State *L);
 int from_lua_engine_name(lua_State *L);
 
 static const struct luaL_reg lua_bucket_engine[] = {
-    {"log", from_lua_log},
     {"get", from_lua_engine_get},
     {"store", from_lua_engine_store},
     {"remove", from_lua_engine_remove},
@@ -1721,6 +1719,27 @@ void init_lua_constants(lua_State *lua) {
 #undef nreg
 }
 
+static int from_lua_usleep(lua_State *ls) {
+    int howlong = lua_tointeger(ls, -1);
+    usleep(howlong);
+    return 0;
+}
+
+static int from_lua_log(lua_State *L) {
+    int level = luaL_checkint(L, 1);
+    if (level < 0) {
+        level = 0;
+    }
+    if (level > EXTENSION_LOG_WARNING) {
+        level = EXTENSION_LOG_WARNING;
+    }
+    const char *msg = luaL_checkstring(L, 2);
+    if (msg != NULL) {
+        getLogger()->log((EXTENSION_LOG_LEVEL) level, NULL, "%s\n", msg);
+    }
+    return 0;
+}
+
 lua_State *create_lua(const char *lua_file) {
     lua_State *lua = lua_open();
     if (lua != NULL) {
@@ -1739,6 +1758,9 @@ lua_State *create_lua(const char *lua_file) {
 
         lua_pushcfunction(lua, from_lua_log);
         lua_setglobal(lua, "log");
+
+        lua_pushcfunction(lua, from_lua_usleep);
+        lua_setglobal(lua, "usleep");
 
         lua_pushcfunction(lua, from_lua_engine_get);
         lua_setglobal(lua, "engine_get");
@@ -1782,23 +1804,6 @@ void *get_lua_userdata(lua_State *L, int ud, const char *tname) {
         }
     }
     return NULL;
-}
-
-/* Implements lua extension: log(int, string):void
- */
-int from_lua_log(lua_State *L) {
-    int level = luaL_checkint(L, 1);
-    if (level < 0) {
-        level = 0;
-    }
-    if (level > EXTENSION_LOG_WARNING) {
-        level = EXTENSION_LOG_WARNING;
-    }
-    const char *msg = luaL_checkstring(L, 2);
-    if (msg != NULL) {
-        getLogger()->log((EXTENSION_LOG_LEVEL) level, NULL, "%s\n", msg);
-    }
-    return 0;
 }
 
 struct bucket_engine *check_lua_bucket_engine(lua_State *L, int narg) {
