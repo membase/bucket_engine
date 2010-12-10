@@ -8,10 +8,10 @@ log(LOG_WARNING, "lua ext engine_get hook")
 function engine_get(engine, cookie, key, vbucket)
   log(LOG_WARNING, "lua ENGINE_GET for key: " .. key .. " vbucket: " .. vbucket)
 
-  if math.random(1, 100) < 25 then
-    log(LOG_WARNING, "lua ENGINE_GET sleeping for key: " .. key .. " vbucket: " .. vbucket)
-    usleep(5000000)
-  end
+  -- if math.random(1, 100) < 25 then
+  --   log(LOG_WARNING, "lua ENGINE_GET sleeping for key: " .. key .. " vbucket: " .. vbucket)
+  --   usleep(5000000)
+  -- end
 
   nget = nget + 1
 
