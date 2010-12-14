@@ -148,7 +148,7 @@ ENGINE_ERROR_CODE to_lua_engine_flush_all(ENGINE_HANDLE* handle,
 int from_lua_engine_allocate_item(lua_State *L);
 int from_lua_engine_set_item_data(lua_State *L);
 int from_lua_engine_get_item_data(lua_State *L);
-
+int from_lua_engine_notify_io_complete(lua_State *L);
 int from_lua_engine_name(lua_State *L);
 
 static const struct luaL_reg lua_bucket_engine[] = {
@@ -159,6 +159,7 @@ static const struct luaL_reg lua_bucket_engine[] = {
     {"allocate_item", from_lua_engine_allocate_item},
     {"set_item_data", from_lua_engine_set_item_data},
     {"get_item_data", from_lua_engine_get_item_data},
+    {"notify_io_complete", from_lua_engine_notify_io_complete},
     {"name", from_lua_engine_name},
     {NULL, NULL}
 };
@@ -2249,7 +2250,7 @@ int from_lua_engine_get_item_data(lua_State *L) {
 }
 
 /* Implements lua extension:
- *   engine_name(engine:userdata, cookie:lightuserdata):string
+ *   name(engine:userdata, cookie:lightuserdata):string
  */
 int from_lua_engine_name(lua_State *L) {
     struct bucket_engine *be = check_lua_bucket_engine(L, 1);
@@ -2263,6 +2264,21 @@ int from_lua_engine_name(lua_State *L) {
         lua_pushstring(L, peh->name);
         return 1;
     }
+    return 0;
+}
+
+/* Implements lua extension:
+ *   notify_io_complete(engine:userdata, cookie:lightuserdata, status:int):void
+ */
+int from_lua_engine_notify_io_complete(lua_State *L) {
+    struct bucket_engine *be = check_lua_bucket_engine(L, 1);
+    const void *cookie = check_lua_cookie(L, 2);
+    int status = luaL_checkint(L, 3);
+
+    if (be != NULL) {
+        be->upstream_server->cookie->notify_io_complete(cookie, status);
+    }
+
     return 0;
 }
 

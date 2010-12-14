@@ -3,17 +3,32 @@ math.randomseed(os.time())
 nget = 0
 nstore = 0
 
+block_get = nil
+
 log(LOG_WARNING, "lua ext engine_get hook")
 
 function engine_get(engine, cookie, key, vbucket)
   log(LOG_WARNING, "lua ENGINE_GET for key: " .. key .. " vbucket: " .. vbucket)
 
+  nget = nget + 1
+
+  if false then
+    if block_get == nil then
+      log(LOG_WARNING, "lua blocking GET for key: " .. key)
+      block_get = {engine, cookie, key, vbucket}
+      return ENGINE_EWOULDBLOCK
+    else
+      log(LOG_WARNING, "lua unblocking GET for key: " .. block_get[3])
+      block_get[1]:notify_io_complete(block_get[2], ENGINE_SUCCESS)
+      log(LOG_WARNING, "lua unblocked GET for key: " .. block_get[3])
+      block_get = nil
+    end
+  end
+
   -- if math.random(1, 100) < 25 then
   --   log(LOG_WARNING, "lua ENGINE_GET sleeping for key: " .. key .. " vbucket: " .. vbucket)
   --   usleep(5000000)
   -- end
-
-  nget = nget + 1
 
   if key == "nget" then
      data = tostring(nget)
