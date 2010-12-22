@@ -851,6 +851,23 @@ static void* conc_del_bucket_thread(void *arg) {
     return NULL;
 }
 
+static enum test_result test_release(ENGINE_HANDLE *h,
+                                     ENGINE_HANDLE_V1 *h1) {
+    void *cokie = mk_conn("someuser", NULL);
+
+    item *itm;
+    const void *key = "release_me";
+    const size_t klen = strlen(key);
+    const size_t vlen = 81985;
+    ENGINE_ERROR_CODE rv = h1->allocate(h, cokie, &itm,
+                                        key, klen,
+                                        vlen, 9258, 3600);
+    assert(rv == ENGINE_SUCCESS);
+    h1->release(h, cokie, itm);
+
+    return SUCCESS;
+}
+
 static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
                                                       ENGINE_HANDLE_V1 *h1) {
     const void *adm_cookie = mk_conn("admin", NULL);
@@ -1393,7 +1410,7 @@ int main(int argc, char **argv) {
          test_select_no_bucket, NULL},
         {"stats call", test_stats, NULL},
         {"stats bucket call", test_stats_bucket, NULL},
-        {"release call", NULL, NULL},
+        {"release call", test_release, NULL},
         {"unknown call delegation", test_unknown_call, NULL},
         {"unknown call delegation (no bucket)", test_unknown_call_no_bucket,
          DEFAULT_CONFIG_NO_DEF},
