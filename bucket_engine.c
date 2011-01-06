@@ -39,6 +39,8 @@ typedef struct proxied_engine_handle {
     TAP_ITERATOR         tap_iterator;
     /* ON_DISCONNECT handling */
     bool                 wants_disconnects;
+    /* Force shutdown flag */
+    bool                 force_shutdown;
     EVENT_CALLBACK       cb;
     const void          *cb_data;
 } proxied_engine_handle_t;
@@ -85,7 +87,8 @@ static const char *get_default_bucket_config(void);
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str);
-static void bucket_destroy(ENGINE_HANDLE* handle);
+static void bucket_destroy(ENGINE_HANDLE* handle,
+                           const bool force);
 static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               item **item,
@@ -364,10 +367,11 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
 
 static void *engine_destroyer(void *arg) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t*)arg;
+
     assert(peh);
     assert(peh->state == STATE_STOPPING);
 
-    peh->pe.v1->destroy(peh->pe.v0);
+    peh->pe.v1->destroy(peh->pe.v0, peh->force_shutdown);
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
 
     int locked = pthread_mutex_lock(&bucket_engine.retention_mutex) == 0;
@@ -451,6 +455,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->name = strdup(bucket_name);
     peh->name_len = strlen(peh->name);
     peh->state = STATE_RUNNING;
+    peh->force_shutdown = false;
 
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -482,7 +487,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         // This was already verified, but we'll check it anyway
         assert(peh->pe.v0->interface == 1);
         if (peh->pe.v1->initialize(peh->pe.v0, config) != ENGINE_SUCCESS) {
-            peh->pe.v1->destroy(peh->pe.v0);
+            peh->pe.v1->destroy(peh->pe.v0, false);
             genhash_delete_all(e->engines, bucket_name, strlen(bucket_name));
             if (msg) {
                 snprintf(msg, msglen,
@@ -632,7 +637,7 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
         if (engine->interface == 1) {
             ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
             if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-                v1->destroy(engine);
+                v1->destroy(engine, false);
                 fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                         error);
                 dlclose(handle);
@@ -771,7 +776,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         }
 
         if (dv1->initialize(se->default_engine.pe.v0, config_str) != ENGINE_SUCCESS) {
-            dv1->destroy(se->default_engine.pe.v0);
+            dv1->destroy(se->default_engine.pe.v0, false);
             return ENGINE_FAILED;
         }
     }
@@ -787,7 +792,9 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static void bucket_destroy(ENGINE_HANDLE* handle) {
+static void bucket_destroy(ENGINE_HANDLE* handle,
+                           const bool force) {
+    (void)force;
     struct bucket_engine* se = get_handle(handle);
 
     if (se->initialized) {
@@ -1247,6 +1254,33 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
 
     EXTRACT_KEY(breq, keyz);
 
+    size_t bodylen = ntohl(breq->message.header.request.bodylen)
+                     - ntohs(breq->message.header.request.keylen);
+    if (bodylen >= (1 << 16)) {
+        return ENGINE_DISCONNECT;
+    }
+    char config[bodylen + 1];
+    memcpy(config, ((char*)request) + sizeof(breq->message.header)
+           + ntohs(breq->message.header.request.keylen), bodylen);
+    config[bodylen] = 0x00;
+
+    bool force = false;
+    if (config[0] != 0) {
+        struct config_item items[2] = {
+            {.key = "force",
+             .datatype = DT_BOOL,
+             .value.dt_bool = &force},
+            {.key = NULL}
+        };
+
+        if (bucket_get_server_api()->core->parse_config(config, items, stderr) != 0) {
+            const char *msg = "Invalid config parameters";
+            response(msg, strlen(msg), "", 0, "", 0, 0,
+                     PROTOCOL_BINARY_RESPONSE_EINVAL, 0, cookie);
+            return ENGINE_SUCCESS;
+        }
+    }
+
     bool found = false;
     if (pthread_mutex_lock(&e->engines_mutex) == 0) {
         proxied_engine_handle_t *peh = genhash_find(e->engines, keyz,
@@ -1254,6 +1288,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         if (peh && peh->state == STATE_RUNNING) {
             found = true;
             peh->state = STATE_STOPPING;
+            peh->force_shutdown = force;
             release_handle(peh);
         }
         pthread_mutex_unlock(&e->engines_mutex);

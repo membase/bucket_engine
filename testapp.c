@@ -322,7 +322,7 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str) {
     if (engine->interface == 1) {
         ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
         if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-            v1->destroy(engine);
+            v1->destroy(engine, false);
             fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
                     error);
             dlclose(handle);
@@ -802,12 +802,12 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_SUCCESS);
 
-    pkt = create_packet(DELETE_BUCKET, "someuser", "");
+    pkt = create_packet(DELETE_BUCKET, "someuser", "force=false");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
 
-    pkt = create_packet(DELETE_BUCKET, "someuser", "");
+    pkt = create_packet(DELETE_BUCKET, "someuser", "force=false");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -892,7 +892,7 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
 
     usleep(1000);
 
-    pkt = create_packet(DELETE_BUCKET, "someuser", "");
+    pkt = create_packet(DELETE_BUCKET, "someuser", "force=false");
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -1337,7 +1337,7 @@ static enum test_result run_test(struct test test) {
             disconnect_all_connections(connstructs);
             destroy_event_handlers();
             connstructs = NULL;
-            h->destroy((ENGINE_HANDLE*)h);
+            h->destroy((ENGINE_HANDLE*)h, false);
             genhash_free(stats_hash);
 #ifndef USE_GCOV
             exit((int)ret);
