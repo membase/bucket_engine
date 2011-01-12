@@ -24,7 +24,6 @@ typedef union proxied_engine {
 
 typedef enum {
     STATE_NULL,
-    STATE_STARTING,
     STATE_RUNNING,
     STATE_STOPPING
 } bucket_state_t;
@@ -229,7 +228,6 @@ static const char * bucket_state_name(bucket_state_t s) {
     const char * rv = NULL;
     switch(s) {
     case STATE_NULL: rv = "NULL"; break;
-    case STATE_STARTING: rv = "starting"; break;
     case STATE_RUNNING: rv = "running"; break;
     case STATE_STOPPING: rv = "stopping"; break;
     }
@@ -414,7 +412,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
 static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     proxied_engine_handle_t *rv = NULL;
     if (peh && pthread_mutex_lock(&bucket_engine.retention_mutex) == 0) {
-        if (peh->state == STATE_STARTING || peh->state == STATE_RUNNING) {
+        if (peh->state == STATE_RUNNING) {
             ++peh->refcount;
             assert(peh->refcount > 0);
             rv = peh;
@@ -517,7 +515,7 @@ static inline proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
         return NULL;
     }
     proxied_engine_handle_t *peh = es->peh;
-    if (peh && !(peh->state == STATE_RUNNING || peh->state == STATE_STARTING)) {
+    if (peh && peh->state != STATE_RUNNING) {
         release_handle(es->peh);
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
         free(es);
