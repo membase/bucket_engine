@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -1365,8 +1366,6 @@ static enum test_result run_test(struct test test) {
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
     int i = 0;
     int rc = 0;
 
@@ -1423,6 +1422,8 @@ int main(int argc, char **argv) {
     };
 
     for (i = 0; tests[i].name; i++) {
+        if (argc > 1 && strcmp(argv[1], tests[i].name))
+            continue;
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
         rc += report_test(run_test(tests[i]));
