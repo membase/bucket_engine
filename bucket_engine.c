@@ -468,7 +468,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         release_handle(peh);
         pthread_mutex_unlock(&e->engines_mutex);
         if (msg) {
-            snprintf(msg, msglen - 1, "Failed to load engine.");
+            snprintf(msg, msglen, "Failed to load engine.");
         }
         return rv;
     }
@@ -485,7 +485,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
             peh->pe.v1->destroy(peh->pe.v0);
             genhash_delete_all(e->engines, bucket_name, strlen(bucket_name));
             if (msg) {
-                snprintf(msg, msglen - 1,
+                snprintf(msg, msglen,
                          "Failed to initialize instance. Error code: %d\n", rv);
             }
             pthread_mutex_unlock(&e->engines_mutex);
@@ -495,7 +495,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         rv = ENGINE_SUCCESS;
     } else {
         if (msg) {
-            snprintf(msg, msglen - 1,
+            snprintf(msg, msglen,
                      "Bucket exists: %s", bucket_state_name(tmppeh->state));
         }
         rv = ENGINE_KEY_EEXISTS;
@@ -976,7 +976,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
         proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
         if (nkey == 0) {
             char statval[20];
-            snprintf(statval, 20, "%d", peh->refcount - 1);
+            snprintf(statval, sizeof(statval), "%d", peh->refcount - 1);
             add_stat("bucket_conns", strlen("bucket_conns"), statval,
                      strlen(statval), cookie);
         }
