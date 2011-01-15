@@ -1192,7 +1192,10 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     size_t bodylen = ntohl(breq->message.header.request.bodylen)
         - ntohs(breq->message.header.request.keylen);
-    assert(bodylen < (1 << 16)); // 64k ought to be enough for anybody
+
+    if (bodylen >= (1 << 16)) // 64k ought to be enough for anybody
+        return ENGINE_DISCONNECT;
+
     char spec[bodylen + 1];
     memcpy(spec, ((char*)request) + sizeof(breq->message.header)
            + ntohs(breq->message.header.request.keylen), bodylen);
