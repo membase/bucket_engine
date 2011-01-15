@@ -78,6 +78,10 @@ struct bucket_engine {
     SERVER_EXTENSION_API extension_api;
     SERVER_COOKIE_API cookie_api;
 
+    pthread_mutex_t destroy_count_mutex;
+    pthread_cond_t  destroy_count_zero;
+    int             destroy_count;
+
     union {
       engine_info engine_info;
       char buffer[sizeof(engine_info) +
@@ -430,6 +434,12 @@ static void *engine_destroyer(void *arg) {
     /* and free it */
     free_engine_handle(peh);
 
+    must_lock(&bucket_engine.destroy_count_mutex);
+    if (--bucket_engine.destroy_count == 0) {
+        pthread_cond_signal(&bucket_engine.destroy_count_zero);
+    }
+    must_unlock(&bucket_engine.destroy_count_mutex);
+
     return NULL;
 }
 
@@ -440,6 +450,10 @@ static void release_handle_locked(proxied_engine_handle_t *peh) {
 
         // We should never free the default engine.
         assert(peh != &bucket_engine.default_engine);
+
+        must_lock(&bucket_engine.destroy_count_mutex);
+        bucket_engine.destroy_count++;
+        must_unlock(&bucket_engine.destroy_count_mutex);
 
         pthread_attr_t attr;
         if (pthread_attr_init(&attr) != 0 ||
@@ -863,6 +877,16 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_FAILED;
     }
 
+    if (pthread_mutex_init(&se->destroy_count_mutex, NULL) != 0) {
+        fprintf(stderr, "Error initializing mutex for bucket destroy_count.\n");
+        return ENGINE_FAILED;
+    }
+
+    if (pthread_cond_init(&se->destroy_count_zero, NULL) != 0) {
+        fprintf(stderr, "Error condition variable for bucket destroy_count == 0.\n");
+        return ENGINE_FAILED;
+    }
+
     ENGINE_ERROR_CODE ret = initialize_configuration(se, config_str);
     if (ret != ENGINE_SUCCESS) {
         return ret;
@@ -923,23 +947,34 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
     (void)force;
     struct bucket_engine* se = get_handle(handle);
 
-    if (se->initialized) {
-        if (se->has_default) {
-            uninit_engine_handle(&se->default_engine);
-        }
-
-        genhash_free(se->engines);
-        se->engines = NULL;
-        free(se->default_engine_path);
-        se->default_engine_path = NULL;
-        free(se->admin_user);
-        se->admin_user = NULL;
-        free(se->default_bucket_name);
-        se->default_bucket_name = NULL;
-        pthread_mutex_destroy(&se->engines_mutex);
-        pthread_mutex_destroy(&se->dlopen_mutex);
-        se->initialized = false;
+    if (!se->initialized) {
+        return;
     }
+
+    must_lock(&se->destroy_count_mutex);
+    while (se->destroy_count != 0) {
+        pthread_cond_wait(&se->destroy_count_zero,
+                          &se->destroy_count_mutex);
+    }
+    must_unlock(&se->destroy_count_mutex);
+
+    if (se->has_default) {
+        uninit_engine_handle(&se->default_engine);
+    }
+
+    genhash_free(se->engines);
+    se->engines = NULL;
+    free(se->default_engine_path);
+    se->default_engine_path = NULL;
+    free(se->admin_user);
+    se->admin_user = NULL;
+    free(se->default_bucket_name);
+    se->default_bucket_name = NULL;
+    pthread_mutex_destroy(&se->engines_mutex);
+    pthread_mutex_destroy(&se->dlopen_mutex);
+    pthread_mutex_destroy(&se->destroy_count_mutex);
+    pthread_cond_destroy(&se->destroy_count_zero);
+    se->initialized = false;
 }
 
 static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
