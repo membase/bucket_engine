@@ -1389,6 +1389,7 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
 
     const size_t msglen = 1024;
     char msg[msglen];
+    msg[0] = 0;
     ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec,
                                           config ? config : "",
                                           NULL, msg, msglen);
