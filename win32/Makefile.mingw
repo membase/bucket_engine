@@ -19,7 +19,7 @@ OBJDIR = .libs .libs/win32
 BINARIES= .libs/bucket_engine.so
 LIB=$(LOCALLIB) -L${MEMCACHED}/lib
 INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I. $(LOCALINC)
-GENHASH= ${MEMCACHED}/.libs/genhash.o
+GENHASH= ${MEMCACHED}/.libs/utilities/genhash.o
 GENFILES=.libs/config_version.h
 CPPFLAGS= -g -O2 ${INCLUDE} -Wall
 
