@@ -89,6 +89,13 @@ struct bucket_engine {
     } info;
 };
 
+struct bucket_list {
+    char *name;
+    int namelen;
+    proxied_engine_handle_t *peh;
+    struct bucket_list *next;
+};
+
 MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
@@ -203,6 +210,9 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
 static bool authorized(ENGINE_HANDLE* handle, const void* cookie);
 
 static void free_engine_handle(proxied_engine_handle_t *);
+
+static bool list_buckets(struct bucket_engine *e, struct bucket_list **blist);
+static void bucket_list_free(struct bucket_list *blist);
 
 struct bucket_engine bucket_engine = {
     .engine = {
@@ -1030,13 +1040,6 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
         return ENGINE_DISCONNECT;
     }
 }
-
-struct bucket_list {
-    char *name;
-    int namelen;
-    proxied_engine_handle_t *peh;
-    struct bucket_list *next;
-};
 
 static void add_engine(const void *key, size_t nkey,
                   const void *val, size_t nval,
