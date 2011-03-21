@@ -628,6 +628,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
             snprintf(msg, msglen,
                      "Bucket exists: %s", bucket_state_name(tmppeh->state));
         }
+        peh->pe.v1->destroy(peh->pe.v0, true);
         rv = ENGINE_KEY_EEXISTS;
     }
 
