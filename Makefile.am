@@ -2,7 +2,8 @@ TMP_DIR=./tmp
 
 TMP_VER=$(TMP_DIR)/version_num.tmp
 
-lib_LTLIBRARIES = bucket_engine.la
+memcachedlibdir = $(libdir)/memcached
+memcachedlib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h
 bucket_engine_la_LDFLAGS= -module -dynamic
 bucket_engine_la_LIBADD = libgenhash.la
