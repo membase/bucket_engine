@@ -527,10 +527,12 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
         return ENGINE_ENOMEM;
     }
     peh->name_len = strlen(peh->name);
-    if (pthread_mutex_init(&peh->lock, NULL) != 0) {
+
+    if (pthread_mutex_init(&peh->lock, bucket_engine.mutexattr) != 0) {
         free((void *)(peh->name));
         return ENGINE_FAILED;
     }
+
     if (pthread_cond_init(&peh->cond, NULL) != 0) {
         pthread_mutex_destroy(&peh->lock);
         free((void *)(peh->name));
@@ -905,13 +907,28 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
 
     assert(!se->initialized);
 
-    if (pthread_mutex_init(&se->engines_mutex, NULL) != 0) {
-        fprintf(stderr, "Error initializing mutex for bucket engine.\n");
+#ifdef HAVE_PTHREAD_MUTEX_ERRORCHECK
+    bucket_engine.mutexattr = &bucket_engine.mutexattr_storage;
+
+    if (pthread_mutexattr_init(bucket_engine.mutexattr) != 0 ||
+        pthread_mutexattr_settype(bucket_engine.mutexattr,
+                                  PTHREAD_MUTEX_ERRORCHECK) != 0)
+    {
+        return ENGINE_FAILED;
+    }
+#else
+    bucket_engine.mutexattr = NULL;
+#endif
+
+    if (pthread_mutex_init(&se->engines_mutex, bucket_engine.mutexattr) != 0) {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Error initializing mutex for bucket engine.\n");
         return ENGINE_FAILED;
     }
 
-    if (pthread_mutex_init(&se->dlopen_mutex, NULL) != 0) {
-        fprintf(stderr, "Error initializing mutex for bucket engine dlopen.\n");
+    if (pthread_mutex_init(&se->dlopen_mutex, bucket_engine.mutexattr) != 0) {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Error initializing mutex for bucket engine dlopen.\n");
         return ENGINE_FAILED;
     }
 
