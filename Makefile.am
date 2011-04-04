@@ -1,3 +1,4 @@
+ACLOCAL_AMFLAGS = -I m4 --force
 TMP_DIR=./tmp
 
 TMP_VER=$(TMP_DIR)/version_num.tmp
