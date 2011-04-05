@@ -198,6 +198,32 @@ static void destroy_stats(void *s) {
     free(s);
 }
 
+static void logger_log(EXTENSION_LOG_LEVEL severity,
+                       const void* client_cookie,
+                       const char *fmt, ...)
+{
+    (void)severity;
+    (void)client_cookie;
+    (void)fmt;
+}
+
+static const char *logger_get_name(void) {
+    return "blackhole logger";
+}
+
+static EXTENSION_LOGGER_DESCRIPTOR blackhole_logger_descriptor = {
+    .get_name = logger_get_name,
+    .log = logger_log
+};
+
+static void *get_extension(extension_type_t type) {
+    void *ret = NULL;
+    if (type == EXTENSION_LOGGER) {
+        ret = &blackhole_logger_descriptor;
+    }
+    return ret;
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @param interface the requested interface from the server
@@ -228,10 +254,11 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         // .evicting = count_eviction
     };
 
-    static SERVER_EXTENSION_API extension_api = { 0, 0, 0 };
+    static SERVER_EXTENSION_API extension_api = {
         // .register_extension = register_extension,
         // .unregister_extension = unregister_extension,
-        // .get_extension = get_extension
+        .get_extension = get_extension
+    };
 
     static SERVER_CALLBACK_API callback_api = {
         .register_callback = register_callback,

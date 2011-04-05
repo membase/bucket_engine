@@ -13,11 +13,14 @@
 
 #include <assert.h>
 #include <stddef.h>
+#include <stdarg.h>
 
 #include <memcached/engine.h>
 #include <memcached/genhash.h>
 
 #include "bucket_engine.h"
+
+static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
 typedef union proxied_engine {
     ENGINE_HANDLE    *v0;
@@ -751,15 +754,16 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
     void *handle = dlopen(soname, RTLD_NOW | RTLD_LOCAL);
     if (handle == NULL) {
         const char *msg = dlerror();
-        fprintf(stderr, "Failed to open library \"%s\": %s\n",
-                soname ? soname : "self",
-                msg ? msg : "unknown error");
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Failed to open library \"%s\": %s\n",
+                    soname ? soname : "self",
+                    msg ? msg : "unknown error");
         return NULL;
     }
 
     void *symbol = dlsym(handle, "create_instance");
     if (symbol == NULL) {
-        fprintf(stderr,
+        logger->log(EXTENSION_LOG_WARNING, NULL,
                 "Could not find symbol \"create_instance\" in %s: %s\n",
                 soname ? soname : "self",
                 dlerror());
@@ -776,7 +780,8 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
                                                   &engine);
 
     if (error != ENGINE_SUCCESS || engine == NULL) {
-        fprintf(stderr, "Failed to create instance. Error code: %d\n", error);
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Failed to create instance. Error code: %d\n", error);
         dlclose(handle);
         return NULL;
     }
@@ -786,13 +791,15 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
             ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
             if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
                 v1->destroy(engine, false);
-                fprintf(stderr, "Failed to initialize instance. Error code: %d\n",
-                        error);
+                logger->log(EXTENSION_LOG_WARNING, NULL,
+                            "Failed to initialize instance. Error code: %d\n",
+                            error);
                 dlclose(handle);
                 return NULL;
             }
         } else {
-            fprintf(stderr, "Unsupported interface level\n");
+            logger->log(EXTENSION_LOG_WARNING, NULL,
+                        "Unsupported interface level\n");
             dlclose(handle);
             return NULL;
         }
@@ -944,6 +951,8 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                                      handle_auth, se);
     se->upstream_server->callback->register_callback(handle, ON_DISCONNECT,
                                                      handle_disconnect, se);
+
+    logger = se->upstream_server->extension->get_extension(EXTENSION_LOGGER);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
