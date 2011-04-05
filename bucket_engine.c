@@ -974,6 +974,20 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+static void bucket_shutdown_engine(const void* key, size_t nkey,
+                                   const void *val, size_t nval,
+                                   void *args) {
+    (void)key; (void)nkey; (void)nval; (void)args;
+    const proxied_engine_handle_t *peh = val;
+    if (peh->pe.v0) {
+        logger->log(EXTENSION_LOG_INFO, NULL,
+                    "Shutting down \"%s\"\n", peh->name);
+        peh->pe.v1->destroy(peh->pe.v0, false);
+        logger->log(EXTENSION_LOG_INFO, NULL,
+                    "Completed shutdown of \"%s\"\n", peh->name);
+    }
+}
+
 static void bucket_destroy(ENGINE_HANDLE* handle,
                            const bool force) {
     (void)force;
@@ -983,7 +997,7 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
         return;
     }
 
-    // @todo destroy all engines!
+    genhash_iter(se->engines, bucket_shutdown_engine, NULL);
 
     if (se->has_default) {
         uninit_engine_handle(&se->default_engine);
