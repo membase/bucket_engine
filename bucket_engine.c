@@ -1719,6 +1719,11 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
 
 static bool authorized(ENGINE_HANDLE* handle,
                        const void* cookie) {
+    // During testing you might want to skip the auth phase...
+    if (getenv("BUCKET_ENGINE_DIABLE_AUTH_PHASE") != NULL) {
+        return true;
+    }
+
     struct bucket_engine *e = (struct bucket_engine*)handle;
     bool rv = false;
     if (e->admin_user) {
