@@ -1774,11 +1774,21 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 }
 
 static inline bool is_admin_command(uint8_t opcode) {
-    return opcode == CREATE_BUCKET
-        || opcode == DELETE_BUCKET
-        || opcode == LIST_BUCKETS
-        || opcode == EXPAND_BUCKET
-        || opcode == SELECT_BUCKET;
+    switch (opcode) {
+    case CREATE_BUCKET:
+    case CREATE_BUCKET_DEPRECATED:
+    case DELETE_BUCKET:
+    case DELETE_BUCKET_DEPRECATED:
+    case EXPAND_BUCKET:
+    case EXPAND_BUCKET_DEPRECATED:
+    case LIST_BUCKETS:
+    case LIST_BUCKETS_DEPRECATED:
+    case SELECT_BUCKET:
+    case SELECT_BUCKET_DEPRECATED:
+        return true;
+    default:
+        return false;
+    }
 }
 
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
@@ -1794,18 +1804,23 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     ENGINE_ERROR_CODE rv = ENGINE_ENOTSUP;
     switch(request->request.opcode) {
     case CREATE_BUCKET:
+    case CREATE_BUCKET_DEPRECATED:
         rv = handle_create_bucket(handle, cookie, request, response);
         break;
     case DELETE_BUCKET:
+    case DELETE_BUCKET_DEPRECATED:
         rv = handle_delete_bucket(handle, cookie, request, response);
         break;
     case LIST_BUCKETS:
+    case LIST_BUCKETS_DEPRECATED:
         rv = handle_list_buckets(handle, cookie, request, response);
         break;
     case EXPAND_BUCKET:
+    case EXPAND_BUCKET_DEPRECATED:
         rv = handle_expand_bucket(handle, cookie, request, response);
         break;
     case SELECT_BUCKET:
+    case SELECT_BUCKET_DEPRECATED:
         rv = handle_select_bucket(handle, cookie, request, response);
         break;
     default: {
