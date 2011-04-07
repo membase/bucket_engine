@@ -61,6 +61,7 @@ typedef struct proxied_engine_handle {
                                     * pointer longer) */
     int clients; /* # of clients currently calling functions in the engine */
     const void *cookie;
+    void *dlhandle;
     volatile bucket_state_t state;
 } proxied_engine_handle_t;
 
@@ -222,7 +223,8 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz);
 
-static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
+static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname,
+                                  const char *config_str,
                                   CREATE_INSTANCE *create_out);
 
 static bool authorized(ENGINE_HANDLE* handle, const void* cookie);
@@ -546,6 +548,9 @@ static void uninit_engine_handle(proxied_engine_handle_t *peh) {
     pthread_mutex_destroy(&peh->lock);
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
     free((void *)peh->name);
+    if (peh->dlhandle) {
+        dlclose(peh->dlhandle);
+    }
 }
 
 static void free_engine_handle(proxied_engine_handle_t *peh) {
@@ -581,7 +586,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     rv = ENGINE_FAILED;
 
     must_lock(&bucket_engine.dlopen_mutex);
-    peh->pe.v0 = load_engine(path, NULL, NULL);
+    peh->pe.v0 = load_engine(&peh->dlhandle, path, NULL, NULL);
     must_unlock(&bucket_engine.dlopen_mutex);
 
     if (!peh->pe.v0) {
@@ -739,7 +744,9 @@ static void engine_hash_free(void* ob) {
     peh->state = STATE_NULL;
 }
 
-static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
+static ENGINE_HANDLE *load_engine(void **dlhandle,
+                                  const char *soname,
+                                  const char *config_str,
                                   CREATE_INSTANCE *create_out) {
     ENGINE_HANDLE *engine = NULL;
     /* Hack to remove the warning from C99 */
@@ -802,6 +809,7 @@ static ENGINE_HANDLE *load_engine(const char *soname, const char *config_str,
         }
     }
 
+    *dlhandle = handle;
     return engine;
 }
 
@@ -887,7 +895,8 @@ static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se,
     if ((ret = init_engine_handle(&se->default_engine, "")) != ENGINE_SUCCESS) {
         return ret;
     }
-    se->default_engine.pe.v0 = load_engine(se->default_engine_path, NULL, NULL);
+    se->default_engine.pe.v0 = load_engine(&se->default_engine.dlhandle,
+                                           se->default_engine_path, NULL, NULL);
     ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
     if (!dv1) {
         return ENGINE_FAILED;
