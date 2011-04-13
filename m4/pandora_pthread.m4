@@ -53,22 +53,6 @@ AC_DEFUN([PANDORA_PTHREAD_YIELD],[
               [pthread_yield function with one argument])
   ])
 
-  AC_CACHE_CHECK([for PTHREAD_MUTEX_ERRORCHECK],
-    [pandora_cv_pthread_mutex_errorcheck],
-    [AC_LINK_IFELSE([
-      AC_LANG_PROGRAM([[
-#include <pthread.h>
-        ]],[[
-pthread_mutexattr_t attr;
-pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK);
-        ]])],
-      [pandora_cv_pthread_mutex_errorcheck=yes],
-      [pandora_cv_pthread_mutex_errorcheck=no])])
-  AS_IF([test "$pandora_cv_pthread_mutex_errorcheck" = "yes"],[
-    AC_DEFINE([HAVE_PTHREAD_MUTEX_ERRORCHECK], [1],
-              [say no more...])
-  ])
-
   CFLAGS="${save_CFLAGS}"
   CXXFLAGS="${save_CXXFLAGS}"
 ])
