@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import sys, socket, re
+import sys, socket, re, time
 from datetime import datetime
 
 
@@ -53,7 +53,71 @@ class Identifier(object):
         return dict((line.split('=') for line in lines))
 
 
-class UnixSock(object):
+class CollectdBase(object):
+    def _send(self, data):
+        raise NotImplementedError
+
+    def _recvline(self):
+        raise NotImplementedError
+
+    def _recvlines(self):
+        raise NotImplementedError
+
+    def _check_result(self):
+        if self.readonly:
+            return
+
+        result = self._recvline()
+        status = result.split()[0]
+        if status != '0':
+            raise CollectdError, result
+
+    def _format_options(self, options):
+        """
+        Format a dictionary of options as a list of key=value pairs
+        starting with a space.
+
+        """
+
+        return ''.join((' ' + '{0}={1}'.format(k, v) for k, v in options.iteritems()))
+
+    @staticmethod
+    def _parse_values(lines):
+        kviter = (line.split('=') for line in lines)
+        return dict(((k, float(v)) for k, v in kviter))
+
+    @staticmethod
+    def _parse_line(line):
+        timestamp, name = line.split(' ', 1)
+        return datetime.fromtimestamp(float(timestamp)), Identifier.fromstring(name)
+
+    def listval(self):
+        self._send('LISTVAL\n')
+        lines = self._recvlines()
+        return (self._parse_line(line) for line in lines)
+
+    def getval(self, identifier):
+        self._send('GETVAL {0}\n'.format(identifier))
+        return self._parse_values(self._recvlines())
+
+    def putval(self, identifier, timestamp, values, **kwargs):
+        if isinstance(timestamp, datetime):
+            timestamp = time.mktime(timestamp.timetuple())
+
+        cmd = 'PUTVAL {0}{1} {2}:{3}\n'.format(identifier, self._format_options(kwargs), int(timestamp), ':'.join((str(v) for v in values)))
+        self._send(cmd)
+        self._check_result()
+
+    def putnotif(self, timestamp, identifier, severity, message):
+        if isinstance(timestamp, datetime):
+            timestamp = time.mktime(timestamp.timetuple())
+
+        self._send('PUTVAL time={0} severity={1}{2} message={3}\n'.format(timestamp, severity, self._format_options(identifier.todict())))
+        self._check_result()
+
+
+class UnixSock(CollectdBase):
+    readonly = False
     def __init__(self, socket_name='/var/run/collectd-unixsock'):
         self._sock = socket.socket(socket.AF_UNIX)
         self._sock.connect(socket_name)
@@ -80,53 +144,24 @@ class UnixSock(object):
 
         return lines[1:-1]
 
-    def _format_options(self, options):
-        """
-        Format a dictionary of options as a list of key=value pairs
-        starting with a space.
 
-        """
+class Exec(CollectdBase):
+    readonly = True
+    def __init__(self, fp=sys.stdout):
+        self._fp = fp
 
-        return ''.join((' ' + '{0}={1}'.format(k, v) for k, v in options.iteritems()))
-
-    @staticmethod
-    def _parse_values(lines):
-        kviter = (line.split('=') for line in lines)
-        return dict(((k, float(v)) for k, v in kviter))
-
-    @staticmethod
-    def _parse_line(line):
-        timestamp, name = line.split(' ', 1)
-        return datetime.fromtimestamp(float(timestamp)), Identifier.fromstring(name)
-
-    def listval(self):
-        self._send('LISTVAL\n')
-        lines = self._recvlines()
-        return (self._parse_line(line) for line in lines)
-
-    def getval(self, name):
-        self._send('GETVAL {0}\n'.format(name))
-        return self._parse_values(self._recvlines())
-
-    def putval(self, name, time, values, **kwargs):
-        cmd = 'PUTVAL {0}{1} {2}:{3}\n'.format(name, self._format_options(kwargs), int(time), ':'.join((str(v) for v in values)))
-        self._send(cmd)
-        result = self._recvline()
-        status = result.split()[0]
-        if status != '0':
-            raise CollectdError, result
-
-    def putnotif(self, time, name, severity, message):
-        if not isinstance(name, Identifier):
-            name = Identifier.fromstring(name)
-
-        self._send('PUTVAL time={0} severity={1}{2} message={3}\n'.format(time, severity, self._format_options(name.todict())))
+    def _send(self, data):
+        self._fp.write(data)
 
 
 def main():
     c = UnixSock()
+    e = Exec()
     for timestamp, name in c.listval():
-        print name, timestamp, c.getval(name)
+        values = c.getval(name)
+        #print name, timestamp, values
+        e.putval(name, timestamp, values.values(), interval=10)
+
 
 
 if __name__ == '__main__':
