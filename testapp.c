@@ -32,6 +32,18 @@
 
 #define CONN_MAGIC 16369814453946373207ULL
 
+pthread_mutex_t notify_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t notify_cond = PTHREAD_COND_INITIALIZER;
+ENGINE_ERROR_CODE notify_code;
+
+static void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE code) {
+    (void)cookie;
+    pthread_mutex_lock(&notify_mutex);
+    notify_code = code;
+    pthread_cond_signal(&notify_cond);
+    pthread_mutex_unlock(&notify_mutex);
+}
+
 protocol_binary_response_status last_status = 0;
 char *last_key = NULL;
 char *last_body = NULL;
@@ -245,7 +257,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
         // .get_socket_fd = get_socket_fd,
-        // .notify_io_complete = notify_io_complete,
+        .notify_io_complete = notify_io_complete,
     };
 
     static SERVER_STAT_API server_stat_api = {
@@ -830,6 +842,12 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
 
     pkt = create_packet(DELETE_BUCKET, "someuser", "force=false");
+    pthread_mutex_lock(&notify_mutex);
+    notify_code = ENGINE_FAILED;
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_EWOULDBLOCK);
+    pthread_cond_wait(&notify_cond, &notify_mutex);
+    assert(notify_code == ENGINE_SUCCESS);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -920,6 +938,13 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     usleep(1000);
 
     pkt = create_packet(DELETE_BUCKET, "someuser", "force=false");
+
+    pthread_mutex_lock(&notify_mutex);
+    notify_code = ENGINE_FAILED;
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_EWOULDBLOCK);
+    pthread_cond_wait(&notify_cond, &notify_mutex);
+    assert(notify_code == ENGINE_SUCCESS);
     rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
@@ -1168,11 +1193,13 @@ static enum test_result test_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 
     rv = h1->get_stats(h, mk_conn("user", NULL), NULL, 0, add_stats);
     assert(rv == ENGINE_SUCCESS);
-    assert(genhash_size(stats_hash) == 1);
+    assert(genhash_size(stats_hash) == 2);
 
     assert(memcmp("0",
                   genhash_find(stats_hash, "bucket_conns", strlen("bucket_conns")),
                   1) == 0);
+    assert(genhash_find(stats_hash, "bucket_active_conns",
+                        strlen("bucket_active_conns")) != NULL);
 
     return SUCCESS;
 }
