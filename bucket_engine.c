@@ -1909,6 +1909,7 @@ static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
     if (es->notified) {
         release_memory(es, sizeof(*es));
         bucket_engine.upstream_server->cookie->store_engine_specific(cookie, NULL);
+        --peh->refcount;
     } else {
         --es->reserved;
     }
