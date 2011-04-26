@@ -452,6 +452,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     bucket_engine.server.cookie->reserve = bucket_engine_reserve_cookie;
     bucket_engine.server.cookie->release = bucket_engine_release_cookie;
 
+    logger = bucket_engine.server.extension->get_extension(EXTENSION_LOGGER);
     return ENGINE_SUCCESS;
 }
 
@@ -997,8 +998,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                                      handle_auth, se);
     se->upstream_server->callback->register_callback(handle, ON_DISCONNECT,
                                                      handle_disconnect, se);
-
-    logger = se->upstream_server->extension->get_extension(EXTENSION_LOGGER);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
