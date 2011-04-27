@@ -652,9 +652,8 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
 /* Returns engine handle for this connection. Every access to
  * underlying engine must go through this function. */
-static proxied_engine_handle_t *get_engine_handle_ex(ENGINE_HANDLE *h,
-                                                     const void *cookie,
-                                                     bool allow_stale) {
+static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
+                                                  const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
     engine_specific_t *es;
     es = e->upstream_server->cookie->get_engine_specific(cookie);
@@ -668,7 +667,7 @@ static proxied_engine_handle_t *get_engine_handle_ex(ENGINE_HANDLE *h,
     }
 
     must_lock(&peh->lock);
-    if (peh->state != STATE_RUNNING && !allow_stale) {
+    if (peh->state != STATE_RUNNING) {
         if (es->reserved == 0) {
             e->upstream_server->cookie->store_engine_specific(cookie, NULL);
             release_memory(es, sizeof(*es));
@@ -682,12 +681,6 @@ static proxied_engine_handle_t *get_engine_handle_ex(ENGINE_HANDLE *h,
     }
 
     return peh;
-}
-
-static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
-                                                  const void *cookie)
-{
-    return get_engine_handle_ex(h, cookie, false);
 }
 
 static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
@@ -1063,10 +1056,26 @@ static void *engine_shutdown_thread(void *arg) {
                 "Engine \"%s\" destroyed\n", peh->name);
 
     must_lock(&peh->lock);
-    peh->state = STATE_STOPPED;
     peh->pe.v1 = NULL;
+    must_unlock(&peh->lock);
 
+    // Unlink it from the engine table so that others may create
+    // it while we're waiting for the remaining clients to disconnect
+    logger->log(EXTENSION_LOG_INFO, NULL,
+                "Unlink \"%s\" from engine table\n", peh->name);
+    lock_engines();
+    int upd = genhash_delete_all(bucket_engine.engines,
+                                 peh->name, peh->name_len);
+    assert(upd == 1);
+    assert(genhash_find(bucket_engine.engines,
+                        peh->name, peh->name_len) == NULL);
+    unlock_engines();
+
+    must_lock(&peh->lock);
+    peh->state = STATE_STOPPED;
     if (peh->cookie != NULL) {
+        logger->log(EXTENSION_LOG_INFO, NULL,
+                    "Notify %p that \"%s\" is deleted", peh->cookie, peh->name);
         bucket_engine.upstream_server->cookie->notify_io_complete(peh->cookie,
                                                                   ENGINE_SUCCESS);
     }
@@ -1079,19 +1088,6 @@ static void *engine_shutdown_thread(void *arg) {
     }
     must_unlock(&peh->lock);
 
-    // There are no references to the engine... time to remove it
-    // from the hashtable
-    logger->log(EXTENSION_LOG_INFO, NULL,
-                "Unlink \"%s\" from engine table\n", peh->name);
-    lock_engines();
-    int upd = genhash_delete_all(bucket_engine.engines,
-                                 peh->name, peh->name_len);
-    assert(upd == 1);
-    assert(genhash_find(bucket_engine.engines,
-                        peh->name, peh->name_len) == NULL);
-    assert(peh->state == STATE_NULL);
-    unlock_engines();
-
     // Aquire the locks for this engine one more time to ensure
     // that no one got a reference to the object
     must_lock(&peh->lock);
@@ -1102,7 +1098,6 @@ static void *engine_shutdown_thread(void *arg) {
 
     /* and free it */
     free_engine_handle(peh);
-
     return NULL;
 }
 
@@ -1336,16 +1331,20 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
 }
 
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
-                                     const void* cookie) {
-    (void)handle;
-    (void)cookie;
-    proxied_engine_handle_t *peh = get_engine_handle_ex(handle, cookie, true);
-    void *rv =  NULL;
-    if (peh != NULL) {
+                                     const void* cookie)
+{
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    void *rv = NULL;
+    engine_specific_t *es;
+
+    es = e->upstream_server->cookie->get_engine_specific(cookie);
+    if (es != NULL && es->peh != NULL) {
+        proxied_engine_handle_t *peh = es->peh;
+        must_lock(&peh->lock);
         if (peh->state == STATE_RUNNING) {
             rv = peh->stats;
         }
-        release_engine_handle(peh);
+        must_unlock(&peh->lock);
     }
     return rv;
 }
