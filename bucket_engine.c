@@ -102,6 +102,13 @@ struct bucket_engine {
     pthread_mutexattr_t mutexattr_storage;
 #endif
 
+    struct {
+        bool in_progress; /* Is the global shutdown in progress */
+        int bucket_counter; /* Number of treads currently running shutdown */
+        pthread_mutex_t mutex;
+        pthread_cond_t cond;
+    } shutdown;
+
     union {
       engine_info engine_info;
       char buffer[sizeof(engine_info) +
@@ -262,6 +269,12 @@ struct bucket_engine bucket_engine = {
         .errinfo          = bucket_errinfo
     },
     .initialized = false,
+    .shutdown = {
+        .in_progress = false,
+        .bucket_counter = 0,
+        .mutex = PTHREAD_MUTEX_INITIALIZER,
+        .cond = PTHREAD_COND_INITIALIZER
+    },
     .info.engine_info = {
         .description = "Bucket engine v0.2",
         .num_features = 1,
@@ -1019,6 +1032,15 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
         return;
     }
 
+    must_lock(&bucket_engine.shutdown.mutex);
+    bucket_engine.shutdown.in_progress = true;
+    // Ensure that we don't race with another thread shutting down a bucket
+    while (bucket_engine.shutdown.bucket_counter) {
+        pthread_cond_wait(&bucket_engine.shutdown.cond,
+                          &bucket_engine.shutdown.mutex);
+    }
+    must_unlock(&bucket_engine.shutdown.mutex);
+
     genhash_iter(se->engines, bucket_shutdown_engine, NULL);
 
     if (se->has_default) {
@@ -1039,6 +1061,19 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
 }
 
 static void *engine_shutdown_thread(void *arg) {
+    bool skip;
+    must_lock(&bucket_engine.shutdown.mutex);
+    skip = bucket_engine.shutdown.in_progress;
+    if (!skip) {
+        ++bucket_engine.shutdown.bucket_counter;
+    }
+    must_unlock(&bucket_engine.shutdown.mutex);
+
+    if (skip) {
+        // Skip shutdown because we're racing the global shutdown..
+        return NULL;
+    }
+
     proxied_engine_handle_t *peh = arg;
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Started thread to shut down \"%s\"\n", peh->name);
@@ -1098,6 +1133,14 @@ static void *engine_shutdown_thread(void *arg) {
 
     /* and free it */
     free_engine_handle(peh);
+
+    must_lock(&bucket_engine.shutdown.mutex);
+    --bucket_engine.shutdown.bucket_counter;
+    if (bucket_engine.shutdown.in_progress && bucket_engine.shutdown.bucket_counter == 0){
+        pthread_cond_signal(&bucket_engine.shutdown.cond);
+    }
+    must_unlock(&bucket_engine.shutdown.mutex);
+
     return NULL;
 }
 
