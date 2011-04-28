@@ -967,6 +967,51 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_delete_bucket_shutdown_race(ENGINE_HANDLE *h,
+                                                         ENGINE_HANDLE_V1 *h1)
+{
+    const void *adm_cookie = mk_conn("admin", NULL);
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+
+    void *pkt = create_create_bucket_pkt("mybucket", ENGINE_PATH, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
+
+    const void *cookie1 = mk_conn("mybucket", NULL);
+
+    item *item1;
+    char *key = "somekey";
+    char *value1 = "some value1";
+
+    store(h, h1, cookie1, key, value1, &item1);
+
+    pkt = create_packet(DELETE_BUCKET, "mybucket", "force=false");
+    pthread_mutex_lock(&notify_mutex);
+    notify_code = ENGINE_FAILED;
+
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    assert(rv == ENGINE_EWOULDBLOCK);
+    pthread_cond_wait(&notify_cond, &notify_mutex);
+    assert(notify_code == ENGINE_SUCCESS);
+
+    // we've got one ref-count open for the bucket, so we should have
+    // a deadlock if we try to shut down the bucket now...
+    // There is actually a bug in bucket_engine that allows us to
+    // call destroy twice without any side effects (it doesn't free
+    // the memory allocated for the engine handle)..
+    // We do however need to clear out the connstructs list
+    // to avoid having on_disconnect handling to be sent
+    // to the free'd engine (it is called by the framework before
+    // it runs destroy, but we've performed the destroy)
+    h1->destroy(h, false);
+    connstructs = NULL;
+
+    return SUCCESS;
+}
+
 static enum test_result test_bucket_name_validation(ENGINE_HANDLE *h,
                                                     ENGINE_HANDLE_V1 *h1) {
 
@@ -1451,6 +1496,8 @@ int main(int argc, char **argv) {
         {"delete bucket", test_delete_bucket,
          DEFAULT_CONFIG_NO_DEF},
         {"concurrent access delete bucket", test_delete_bucket_concurrent,
+         DEFAULT_CONFIG_NO_DEF},
+        {"delete bucket shutdwn race", test_delete_bucket_shutdown_race,
          DEFAULT_CONFIG_NO_DEF},
         {"expand bucket", test_expand_bucket, NULL},
         {"expand missing bucket", test_expand_missing_bucket, NULL},

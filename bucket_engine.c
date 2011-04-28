@@ -6,6 +6,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/time.h>
 #ifndef WIN32
 #include <arpa/inet.h>
 #else
@@ -1115,11 +1116,31 @@ static void *engine_shutdown_thread(void *arg) {
                                                                   ENGINE_SUCCESS);
     }
 
-    while (peh->refcount > 0) {
+    bool terminate = false;
+    while (peh->refcount > 0 && !terminate) {
+        struct timeval tp = { .tv_sec = 0 };
+        gettimeofday(&tp, NULL);
+        struct timespec ts = { .tv_sec = tp.tv_sec + 1,
+                               .tv_nsec = tp.tv_usec * 1000};
         logger->log(EXTENSION_LOG_INFO, NULL,
-                    "There are %d references to \"%s\".. wait\n",
+                    "There are %d references to \"%s\".. wait 1 sec\n",
                     peh->refcount, peh->name);
-        pthread_cond_wait(&peh->cond, &peh->lock);
+        pthread_cond_timedwait(&peh->cond, &peh->lock, &ts);
+
+        if (peh->refcount > 0) {
+            /*
+             * Unlock the current engine to avoid holding multiple locks
+             * while checking the global shutdown mutex (that may lead
+             * to deadlocks...)
+             */
+            must_unlock(&peh->lock);
+
+            must_lock(&bucket_engine.shutdown.mutex);
+            terminate = bucket_engine.shutdown.in_progress;
+            must_unlock(&bucket_engine.shutdown.mutex);
+
+            must_lock(&peh->lock);
+        }
     }
     must_unlock(&peh->lock);
 
