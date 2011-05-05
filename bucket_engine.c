@@ -37,6 +37,7 @@ typedef struct proxied_engine_handle {
     int                  refcount;
     bucket_state_t       state;
     TAP_ITERATOR         tap_iterator;
+    bool                 tap_iterator_disabled;
     /* ON_DISCONNECT handling */
     bool                 wants_disconnects;
     EVENT_CALLBACK       cb;
@@ -451,6 +452,9 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     peh->name = strdup(bucket_name);
     peh->name_len = strlen(peh->name);
     peh->state = STATE_RUNNING;
+    if (path && strstr(path, "default_engine") != 0) {
+        peh->tap_iterator_disabled = true;
+    }
 
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -765,6 +769,9 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         se->default_engine.refcount = 1;
         se->default_engine.state = STATE_RUNNING;
         se->default_engine.pe.v0 = load_engine(se->default_engine_path, NULL, NULL);
+        if (se->default_engine_path && strstr(se->default_engine_path, "default_engine") != 0) {
+            se->default_engine.tap_iterator_disabled = true;
+        }
 
         ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
         if (!dv1) {
@@ -1118,15 +1125,18 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
                                             const void* client, size_t nclient,
                                             uint32_t flags,
                                             const void* userdata, size_t nuserdata) {
+    TAP_ITERATOR ret = NULL;
+
     proxied_engine_handle_t *e = get_engine_handle(handle, cookie);
     if (e) {
-        e->tap_iterator = e->pe.v1->get_tap_iterator(e->pe.v0, cookie,
-                                                     client, nclient,
-                                                     flags, userdata, nuserdata);
-        return e->tap_iterator ? bucket_tap_iterator_shim : NULL;
-    } else {
-        return NULL;
+        if (!e->tap_iterator_disabled) {
+            e->tap_iterator = e->pe.v1->get_tap_iterator(e->pe.v0, cookie,
+                                                         client, nclient,
+                                                         flags, userdata, nuserdata);
+            ret = e->tap_iterator ? bucket_tap_iterator_shim : NULL;
+        }
     }
+    return ret;
 }
 
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
