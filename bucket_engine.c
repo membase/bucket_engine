@@ -43,6 +43,7 @@ typedef struct proxied_engine_handle {
     proxied_engine_t     pe;
     struct thread_stats *stats;
     TAP_ITERATOR         tap_iterator;
+    bool                 tap_iterator_disabled;
     /* ON_DISCONNECT handling */
     bool                 wants_disconnects;
     /* Force shutdown flag */
@@ -543,7 +544,7 @@ static bool has_valid_bucket_name(const char *n) {
 }
 
 /* fills engine handle. Assumes that it's zeroed already */
-static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const char *name) {
+static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const char *name, const char *module) {
     peh->stats = bucket_engine.upstream_server->stat->new_stats();
     assert(peh->stats);
     peh->refcount = 1;
@@ -552,6 +553,10 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
         return ENGINE_ENOMEM;
     }
     peh->name_len = strlen(peh->name);
+
+    if (module && strstr(module, "default_engine") != 0) {
+        peh->tap_iterator_disabled = true;
+    }
 
     if (pthread_mutex_init(&peh->lock, bucket_engine.mutexattr) != 0) {
         release_memory((void*)peh->name, peh->name_len);
@@ -600,7 +605,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     if (peh == NULL) {
         return ENGINE_ENOMEM;
     }
-    rv = init_engine_handle(peh, bucket_name);
+    rv = init_engine_handle(peh, bucket_name, path);
     if (rv != ENGINE_SUCCESS) {
         release_memory(peh, sizeof(*peh));
         return rv;
@@ -922,7 +927,8 @@ static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se,
                                              const char* config_str) {
     ENGINE_ERROR_CODE ret;
     memset(&se->default_engine, 0, sizeof(se->default_engine));
-    if ((ret = init_engine_handle(&se->default_engine, "")) != ENGINE_SUCCESS) {
+    if ((ret = init_engine_handle(&se->default_engine, "",
+                                  se->default_engine_path)) != ENGINE_SUCCESS) {
         return ret;
     }
     se->default_engine.pe.v0 = load_engine(&se->default_engine.dlhandle,
@@ -1558,16 +1564,20 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
                                             const void* client, size_t nclient,
                                             uint32_t flags,
                                             const void* userdata, size_t nuserdata) {
+    TAP_ITERATOR ret = NULL;
+
     proxied_engine_handle_t *e = get_engine_handle(handle, cookie);
     if (e) {
-        e->tap_iterator = e->pe.v1->get_tap_iterator(e->pe.v0, cookie,
-                                                     client, nclient,
-                                                     flags, userdata, nuserdata);
+        if (!e->tap_iterator_disabled) {
+            e->tap_iterator = e->pe.v1->get_tap_iterator(e->pe.v0, cookie,
+                                                         client, nclient,
+                                                         flags, userdata, nuserdata);
+            ret = e->tap_iterator ? bucket_tap_iterator_shim : NULL;
+        }
         release_engine_handle(e);
-        return e->tap_iterator ? bucket_tap_iterator_shim : NULL;
-    } else {
-        return NULL;
     }
+
+    return ret;
 }
 
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
