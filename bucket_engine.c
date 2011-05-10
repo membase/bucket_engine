@@ -1949,22 +1949,34 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
 {
-    proxied_engine_handle_t *peh;
-    peh = get_engine_handle((ENGINE_HANDLE *)&bucket_engine,
-                            cookie);
-    if (peh) {
-        engine_specific_t *es;
-        es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
-        must_lock(&peh->lock);
-        ++es->reserved;
-        peh->refcount++;
-        must_unlock(&peh->lock);
-        release_engine_handle(peh);
-    } else {
-        // this means we're having a race..
+    ENGINE_ERROR_CODE ret = ENGINE_FAILED;
+    engine_specific_t *es;
+    es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
+
+    if (es == NULL) {
         return ENGINE_FAILED;
     }
-    return upstream_reserve_cookie(cookie);
+
+    proxied_engine_handle_t *peh = es->peh;
+    if (peh == NULL) {
+        if (bucket_engine.default_engine.pe.v0 != NULL) {
+            peh = &bucket_engine.default_engine;
+        } else {
+            return ENGINE_FAILED;
+        }
+    }
+    must_lock(&peh->lock);
+    if (peh->state == STATE_RUNNING) {
+        peh->refcount++;
+        es->reserved++;
+        ret = ENGINE_SUCCESS;
+    }
+    must_unlock(&peh->lock);
+    if (ret == ENGINE_SUCCESS) {
+        ret = upstream_reserve_cookie(cookie);
+    }
+
+    return ret;
 }
 
 static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
