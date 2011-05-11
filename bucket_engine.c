@@ -712,10 +712,13 @@ static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
         struct bucket_engine *e = (struct bucket_engine*)h;
         e->upstream_server->cookie->store_engine_specific(cookie, es);
     }
-    // out with the old
-    release_handle(es->peh);
+
+    proxied_engine_handle_t *old = es->peh;
     // In with the new
     es->peh = retain_handle(peh);
+
+    // out with the old
+    release_handle(old);
     return es->peh;
 }
 
