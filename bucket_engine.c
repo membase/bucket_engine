@@ -89,7 +89,6 @@ struct bucket_engine {
     char *default_engine_path;
     char *admin_user;
     char *default_bucket_name;
-    char *default_bucket_config;
     proxied_engine_handle_t default_engine;
     pthread_mutex_t engines_mutex;
     pthread_mutex_t dlopen_mutex;
@@ -132,6 +131,8 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   ENGINE_HANDLE **handle);
 
 static const engine_info* bucket_get_info(ENGINE_HANDLE* handle);
+
+static const char *get_default_bucket_config(void);
 
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str);
@@ -331,6 +332,11 @@ static const char * bucket_state_name(bucket_state_t s) {
     }
     assert(rv);
     return rv;
+}
+
+static const char *get_default_bucket_config() {
+    const char *config = getenv("MEMCACHED_DEFAULT_BUCKET_CONFIG");
+    return config != NULL ? config : "";
 }
 
 static SERVER_HANDLE_V1 *bucket_get_server_api(void) {
@@ -882,9 +888,10 @@ static void handle_connect(const void *cookie,
         // Assign a default named bucket (if there is one).
         peh = find_bucket(e->default_bucket_name);
         if (!peh && e->auto_create) {
+            // XXX:  Need default config.
             create_bucket(e, e->default_bucket_name,
                           e->default_engine_path,
-                          e->default_bucket_config, &peh, NULL, 0);
+                          get_default_bucket_config(), &peh, NULL, 0);
         }
     } else {
         // Assign the default bucket (if there is one).
@@ -919,8 +926,8 @@ static void handle_auth(const void *cookie,
     release_handle(peh);
 }
 
-static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se)
-{
+static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se,
+                                             const char* config_str) {
     ENGINE_ERROR_CODE ret;
     memset(&se->default_engine, 0, sizeof(se->default_engine));
     if ((ret = init_engine_handle(&se->default_engine, "",
@@ -934,7 +941,7 @@ static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se)
         return ENGINE_FAILED;
     }
 
-    ret = dv1->initialize(se->default_engine.pe.v0, se->default_bucket_config);
+    ret = dv1->initialize(se->default_engine.pe.v0, config_str);
     if (ret != ENGINE_SUCCESS) {
         dv1->destroy(se->default_engine.pe.v0, false);
     }
@@ -995,7 +1002,7 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
     if (se->has_default) {
-        if ((ret = init_default_bucket(se)) != ENGINE_SUCCESS) {
+        if ((ret = init_default_bucket(se, config_str)) != ENGINE_SUCCESS) {
             genhash_free(se->engines);
             return ret;
         }
@@ -1058,8 +1065,6 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
     se->admin_user = NULL;
     free(se->default_bucket_name);
     se->default_bucket_name = NULL;
-    free(se->default_bucket_config);
-    se->default_bucket_config = NULL;
     pthread_mutex_destroy(&se->engines_mutex);
     pthread_mutex_destroy(&se->dlopen_mutex);
     se->initialized = false;
@@ -1613,9 +1618,6 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
             { .key = "default_bucket_name",
               .datatype = DT_STRING,
               .value.dt_string = &me->default_bucket_name },
-            { .key = "default_bucket_config",
-              .datatype = DT_STRING,
-              .value.dt_string = &me->default_bucket_config },
             { .key = "auto_create",
               .datatype = DT_BOOL,
               .value.dt_bool = &me->auto_create },
@@ -1625,20 +1627,6 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
         };
 
         ret = me->upstream_server->core->parse_config(cfg_str, items, stderr);
-        if (ret == ENGINE_SUCCESS) {
-            if (!items[0].found) {
-                me->default_engine_path = NULL;
-            }
-            if (!items[1].found) {
-                me->admin_user = NULL;
-            }
-            if (!items[3].found) {
-                me->default_bucket_name = NULL;
-            }
-            if (!items[4].found) {
-                me->default_bucket_config = strdup("");
-            }
-        }
     }
 
     return ret;

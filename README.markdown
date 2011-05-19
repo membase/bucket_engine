@@ -70,11 +70,6 @@ users first attempt to use them.
 If true, a default bucket exists for unauthenticated users, or users
 who don't have buckets created for them when `auto_create` is disabled.
 
-### default\_bucket\_config
-
-The "default_bucket_config" parameter specifies a parameter to
-send to the default engine (ex: default_bucket_engine=tap_keepalive=500).
-
 ### engine
 
 The contained engine is configured using the `engine` parameter (see
