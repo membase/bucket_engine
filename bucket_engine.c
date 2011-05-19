@@ -831,70 +831,39 @@ static ENGINE_HANDLE *load_engine(void **dlhandle,
     return engine;
 }
 
-/**
- * Handle the situation when a connection is disconnected
- * from the upstream. Propagate the command downstream and
- * release the allocated resources for the connection
- * unless it is reserved.
- *
- * @param cookie the cookie representing the connection that was closed
- * @param type The kind of event (should be ON_DISCONNECT)
- * @param event_data not used
- * @param cb_data The bucket instance in use
- */
 static void handle_disconnect(const void *cookie,
                               ENGINE_EVENT_TYPE type,
                               const void *event_data,
                               const void *cb_data)
 {
-    assert(type == ON_DISCONNECT);
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
     engine_specific_t *es;
 
     es = e->upstream_server->cookie->get_engine_specific(cookie);
     if (es == NULL) {
-        // we don't have any information about this connection..
-        // just ignore it!
         return;
     }
 
     proxied_engine_handle_t *peh = es->peh;
     if (peh == NULL) {
-        // Not attached to an engine!
-        // Release the allocated memory, and clear the cookie data
-        // upstream
+        // not attached to an engine!
         release_memory(es, sizeof(*es));
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
         return;
     }
 
-    // @todo this isn't really safe... we might call down into the
-    //       engine while it's deleting.. We can't keep the lock
-    //       over the callback, because ep-engine in it's current
-    //       implementation may grab locks in it's cb method causing us
-    //       to potentially deadlock... I don't _think_ that's the
-    //       problem i'm seeing right now...
-    must_lock(&peh->lock);
-    bool do_callback = peh->wants_disconnects && peh->state == STATE_RUNNING;
-    must_unlock(&peh->lock);
-
-    if (do_callback) {
+    if (peh->wants_disconnects && peh->state == STATE_RUNNING) {
         peh->cb(cookie, type, event_data, peh->cb_data);
     }
 
     // Free up the engine we were using.
     must_lock(&peh->lock);
     if (es->reserved == 0) {
-        // this connection isn't reserved. We might go ahead and release
-        // all resources
-        release_handle_locked(peh);
         must_unlock(&peh->lock);
-        // Release all the memory and clear the cookie data upstream.
+        release_handle(peh);
         release_memory(es, sizeof(*es));
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
     } else {
-        // This connection is reserved. Remember that until the downstream
-        // decides to release the reference...
         es->notified = true;
         must_unlock(&peh->lock);
     }
@@ -1179,7 +1148,7 @@ static void *engine_shutdown_thread(void *arg) {
     }
     must_unlock(&peh->lock);
 
-    // Acquire the locks for this engine one more time to ensure
+    // Aquire the locks for this engine one more time to ensure
     // that no one got a reference to the object
     must_lock(&peh->lock);
     must_unlock(&peh->lock);
@@ -1993,39 +1962,24 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     return rv;
 }
 
-/**
- * Notify bucket_engine that we want to reserve this cookie. That
- * means that bucket_engine and memcached can't release the resources
- * associated with the cookie until the downstream engine release it
- * by calling bucket_engine_release_cookie.
- *
- * @param cookie the cookie to reserve
- * @return ENGINE_SUCCESS upon success
- */
 static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
 {
     ENGINE_ERROR_CODE ret = ENGINE_FAILED;
-    engine_specific_t *es = bucket_get_engine_specific(cookie);
+    engine_specific_t *es;
+    es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
 
     if (es == NULL) {
-        // You can't try reserve a cookie without an associated connection
-        // structure. I'm pretty sure this is an impossible code path..
         return ENGINE_FAILED;
     }
 
     proxied_engine_handle_t *peh = es->peh;
     if (peh == NULL) {
-        // The connection hasn't selected an engine, so use
-        // the default engine.
         if (bucket_engine.default_engine.pe.v0 != NULL) {
             peh = &bucket_engine.default_engine;
         } else {
             return ENGINE_FAILED;
         }
     }
-
-    // Lock the engine and increase the ref counters if the
-    // engine is in the allowed state.
     must_lock(&peh->lock);
     if (peh->state == STATE_RUNNING) {
         peh->refcount++;
@@ -2033,74 +1987,36 @@ static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
         ret = ENGINE_SUCCESS;
     }
     must_unlock(&peh->lock);
-
     if (ret == ENGINE_SUCCESS) {
-        // Reserve the cookie upstream as well
         ret = upstream_reserve_cookie(cookie);
-        if (ret != ENGINE_SUCCESS) {
-            logger->log(EXTENSION_LOG_WARNING, cookie,
-                        "Failed to reserve the cookie (%p) in memcached.\n"
-                        "Expect a bucket you can't close until restart...",
-                        cookie);
-        }
     }
 
     return ret;
 }
 
-/**
- * Release the the cookie from the underlying system, and allow the upstream
- * to release all resources allocated together with the cookie. The caller of
- * this function guarantees that it will <b>never</b> use the cookie again
- * (until the upstream layers provides the cookie again). We don't allow
- * semantically wrong programming, so we'll <b>CRASH</b> if the caller tries
- * to release a cookie that isn't reserved.
- *
- * @param cookie the cookie to release (this cookie <b>must</b> already be
- *               reserved by a call to bucket_engine_reserve_cookie
- * @return ENGINE_SUCCESS upon success
- */
 static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
 {
-    // The cookie <b>SHALL</b> be reserved before the caller may call
-    // release. Lets go ahead and verify that (and crash and burn if
-    // the caller tries to mess with us).
-    engine_specific_t *es = bucket_get_engine_specific(cookie);
-    assert(es != NULL && es->reserved > 0 && es->peh != NULL);
+    engine_specific_t *es;
+    es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
+    // We should _ALWAYS_ have engine specific data because
+    // the reserved flag _SHOULD_ be set
+    assert(es);
+    assert(es->reserved);
+
     proxied_engine_handle_t *peh = es->peh;
-
-    // It's time to lock the engine handle and start releasing the cookie
+    assert(peh);
     must_lock(&peh->lock);
-    --es->reserved;
-
-    if (es->notified && es->reserved == 0) {
-        // this was the last reservation of the object, and the
-        // connection was already notified as closed. Release the memory
-        // and store a NULL pointer in the cookie so that we know it's released
-
+    if (es->notified) {
         release_memory(es, sizeof(*es));
         bucket_engine.upstream_server->cookie->store_engine_specific(cookie, NULL);
-
-        // handle_disconnect don't decrement the refcount for reserved
-        // cookies, so we need to do it here..
         --peh->refcount;
+    } else {
+        --es->reserved;
     }
-
-    // Sanity check that our reference counting isn't gone wild
     assert(peh->refcount > 0);
     if (--peh->refcount == 0) {
-        // This was the last reference to the object.. We might want to
-        // shut down the bucket..
         maybe_start_engine_shutdown_LOCKED(peh);
     }
     must_unlock(&peh->lock);
-
-    if (upstream_release_cookie(cookie) != ENGINE_SUCCESS) {
-        logger->log(EXTENSION_LOG_WARNING, cookie,
-                            "Failed to release a reserved cookie (%p).\n"
-                            "Expect a memory leak and potential hang situation on this client",
-                            cookie);
-    }
-
-    return ENGINE_SUCCESS;
+    return upstream_release_cookie(cookie);
 }
