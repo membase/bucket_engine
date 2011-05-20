@@ -379,6 +379,10 @@ static void bucket_register_callback(ENGINE_HANDLE *eh,
         find_data.peh->wants_disconnects = true;
         find_data.peh->cb = cb;
         find_data.peh->cb_data = cb_data;
+    } else if (bucket_engine.has_default && eh == bucket_engine.default_engine.pe.v0){
+        bucket_engine.default_engine.wants_disconnects = true;
+        bucket_engine.default_engine.cb = cb;
+        bucket_engine.default_engine.cb_data = cb_data;
     }
 }
 
@@ -995,6 +999,13 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_ENOMEM;
     }
 
+    se->upstream_server->callback->register_callback(handle, ON_CONNECT,
+                                                     handle_connect, se);
+    se->upstream_server->callback->register_callback(handle, ON_AUTH,
+                                                     handle_auth, se);
+    se->upstream_server->callback->register_callback(handle, ON_DISCONNECT,
+                                                     handle_disconnect, se);
+
     // Initialization is useful to know if we *can* start up an
     // engine, but we check flags here to see if we should have and
     // shut it down if not.
@@ -1005,12 +1016,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         }
     }
 
-    se->upstream_server->callback->register_callback(handle, ON_CONNECT,
-                                                     handle_connect, se);
-    se->upstream_server->callback->register_callback(handle, ON_AUTH,
-                                                     handle_auth, se);
-    se->upstream_server->callback->register_callback(handle, ON_DISCONNECT,
-                                                     handle_disconnect, se);
 
     se->initialized = true;
     return ENGINE_SUCCESS;
