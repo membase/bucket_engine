@@ -232,9 +232,7 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz);
 
-static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname,
-                                  const char *config_str,
-                                  CREATE_INSTANCE *create_out);
+static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname);
 
 static bool authorized(ENGINE_HANDLE* handle, const void* cookie);
 
@@ -608,7 +606,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     rv = ENGINE_FAILED;
 
     must_lock(&bucket_engine.dlopen_mutex);
-    peh->pe.v0 = load_engine(&peh->dlhandle, path, NULL, NULL);
+    peh->pe.v0 = load_engine(&peh->dlhandle, path);
     must_unlock(&bucket_engine.dlopen_mutex);
 
     if (!peh->pe.v0) {
@@ -762,10 +760,7 @@ static void engine_hash_free(void* ob) {
     peh->state = STATE_NULL;
 }
 
-static ENGINE_HANDLE *load_engine(void **dlhandle,
-                                  const char *soname,
-                                  const char *config_str,
-                                  CREATE_INSTANCE *create_out) {
+static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname) {
     ENGINE_HANDLE *engine = NULL;
     /* Hack to remove the warning from C99 */
     union my_hack {
@@ -792,9 +787,6 @@ static ENGINE_HANDLE *load_engine(void **dlhandle,
         return NULL;
     }
     my_create.voidptr = symbol;
-    if (create_out) {
-        *create_out = my_create.create;
-    }
 
     /* request a instance with protocol version 1 */
     ENGINE_ERROR_CODE error = (*my_create.create)(1,
@@ -806,25 +798,6 @@ static ENGINE_HANDLE *load_engine(void **dlhandle,
                     "Failed to create instance. Error code: %d\n", error);
         dlclose(handle);
         return NULL;
-    }
-
-    if (config_str) {
-        if (engine->interface == 1) {
-            ENGINE_HANDLE_V1 *v1 = (ENGINE_HANDLE_V1*)engine;
-            if (v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-                v1->destroy(engine, false);
-                logger->log(EXTENSION_LOG_WARNING, NULL,
-                            "Failed to initialize instance. Error code: %d\n",
-                            error);
-                dlclose(handle);
-                return NULL;
-            }
-        } else {
-            logger->log(EXTENSION_LOG_WARNING, NULL,
-                        "Unsupported interface level\n");
-            dlclose(handle);
-            return NULL;
-        }
     }
 
     *dlhandle = handle;
@@ -959,7 +932,7 @@ static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se)
         return ret;
     }
     se->default_engine.pe.v0 = load_engine(&se->default_engine.dlhandle,
-                                           se->default_engine_path, NULL, NULL);
+                                           se->default_engine_path);
     ENGINE_HANDLE_V1 *dv1 = (ENGINE_HANDLE_V1*)se->default_engine.pe.v0;
     if (!dv1) {
         return ENGINE_FAILED;
