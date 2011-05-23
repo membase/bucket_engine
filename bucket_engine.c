@@ -234,7 +234,7 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
 
 static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname);
 
-static bool authorized(ENGINE_HANDLE* handle, const void* cookie);
+static bool is_authorized(ENGINE_HANDLE* handle, const void* cookie);
 
 static void free_engine_handle(proxied_engine_handle_t *);
 
@@ -1363,7 +1363,7 @@ static ENGINE_ERROR_CODE get_bucket_stats(ENGINE_HANDLE* handle,
                                           const void *cookie,
                                           ADD_STAT add_stat) {
 
-    if (!authorized(handle, cookie)) {
+    if (!is_authorized(handle, cookie)) {
         return ENGINE_FAILED;
     }
 
@@ -1838,7 +1838,7 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static bool authorized(ENGINE_HANDLE* handle,
+static bool is_authorized(ENGINE_HANDLE* handle,
                        const void* cookie) {
     // During testing you might want to skip the auth phase...
     if (getenv("BUCKET_ENGINE_DIABLE_AUTH_PHASE") != NULL) {
@@ -1905,7 +1905,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 ADD_RESPONSE response)
 {
     if (is_admin_command(request->request.opcode)
-        && !authorized(handle, cookie)) {
+        && !is_authorized(handle, cookie)) {
         return ENGINE_ENOTSUP;
     }
 
