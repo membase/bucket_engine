@@ -1602,6 +1602,12 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
     return ret;
 }
 
+/**
+ * Initialize configuration is called during the initialization of
+ * bucket_engine. It tries to parse the configuration string to pick
+ * out the legal configuration options, and store them in the
+ * one and only instance of bucket_engine.
+ */
 static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
                                                   const char *cfg_str) {
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
@@ -1633,8 +1639,8 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
             { .key = NULL}
         };
 
-        ret = me->upstream_server->core->parse_config(cfg_str, items, stderr);
-        if (ret == ENGINE_SUCCESS) {
+        int r = me->upstream_server->core->parse_config(cfg_str, items, stderr);
+        if (r == 0) {
             if (!items[0].found) {
                 me->default_engine_path = NULL;
             }
@@ -1647,6 +1653,8 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
             if (!items[4].found) {
                 me->default_bucket_config = strdup("");
             }
+        } else {
+            ret = ENGINE_FAILED;
         }
     }
 
