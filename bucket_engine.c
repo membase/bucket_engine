@@ -1907,35 +1907,42 @@ static inline bool is_admin_command(uint8_t opcode) {
     }
 }
 
+/**
+ * Handle one of the "engine-specific" commands. Bucket-engine itself
+ * implements a small subset of commands, but the user needs to be
+ * authorized in order to execute them. All the other commands
+ * are proxied to the underlying engine.
+ */
 static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 protocol_binary_request_header *request,
                                                 ADD_RESPONSE response)
 {
-    if (is_admin_command(request->request.opcode)
-        && !is_authorized(handle, cookie)) {
-        return ENGINE_ENOTSUP;
-    }
-
     ENGINE_ERROR_CODE rv = ENGINE_ENOTSUP;
-    switch(request->request.opcode) {
-    case CREATE_BUCKET:
-    case CREATE_BUCKET_DEPRECATED:
-        rv = handle_create_bucket(handle, cookie, request, response);
-        break;
-    case DELETE_BUCKET:
-    case DELETE_BUCKET_DEPRECATED:
-        rv = handle_delete_bucket(handle, cookie, request, response);
-        break;
-    case LIST_BUCKETS:
-    case LIST_BUCKETS_DEPRECATED:
-        rv = handle_list_buckets(handle, cookie, request, response);
-        break;
-    case SELECT_BUCKET:
-    case SELECT_BUCKET_DEPRECATED:
-        rv = handle_select_bucket(handle, cookie, request, response);
-        break;
-    default: {
+    if (is_admin_command(request->request.opcode)) {
+        if (is_authorized(handle, cookie)) {
+            switch(request->request.opcode) {
+            case CREATE_BUCKET:
+            case CREATE_BUCKET_DEPRECATED:
+                rv = handle_create_bucket(handle, cookie, request, response);
+                break;
+            case DELETE_BUCKET:
+            case DELETE_BUCKET_DEPRECATED:
+                rv = handle_delete_bucket(handle, cookie, request, response);
+                break;
+            case LIST_BUCKETS:
+            case LIST_BUCKETS_DEPRECATED:
+                rv = handle_list_buckets(handle, cookie, request, response);
+                break;
+            case SELECT_BUCKET:
+            case SELECT_BUCKET_DEPRECATED:
+                rv = handle_select_bucket(handle, cookie, request, response);
+                break;
+            default:
+                assert(false);
+            }
+        }
+    } else {
         proxied_engine_t *e = get_engine(handle, cookie);
         if (e) {
             rv = e->v1->unknown_command(e->v0, cookie, request, response);
@@ -1944,7 +1951,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
             rv = ENGINE_DISCONNECT;
         }
     }
-    }
+
     return rv;
 }
 
