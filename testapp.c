@@ -1109,42 +1109,6 @@ static enum test_result test_list_buckets_two(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
-static enum test_result test_expand_bucket(ENGINE_HANDLE *h,
-                                           ENGINE_HANDLE_V1 *h1) {
-
-    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-
-    void *pkt = create_create_bucket_pkt("bucket1", ENGINE_PATH, "");
-    rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
-    free(pkt);
-    assert(rv == ENGINE_SUCCESS);
-    assert(last_status == 0);
-
-    pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
-    rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
-    free(pkt);
-    assert(rv == ENGINE_SUCCESS);
-    assert(last_status == 0);
-
-    return SUCCESS;
-}
-
-static enum test_result test_expand_missing_bucket(ENGINE_HANDLE *h,
-                                                   ENGINE_HANDLE_V1 *h1) {
-
-    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-
-    void *pkt = create_packet(EXPAND_BUCKET, "bucket1", "1024");
-    rv = h1->unknown_command(h, mk_conn("admin", NULL), pkt, add_response);
-    free(pkt);
-    assert(rv == ENGINE_SUCCESS);
-    assert(last_status == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
-    const char *exp = "Engine not found";
-    assert(memcmp(last_body, exp, strlen(exp)) == 0);
-
-    return SUCCESS;
-}
-
 static enum test_result test_unknown_call(ENGINE_HANDLE *h,
                                           ENGINE_HANDLE_V1 *h1) {
 
@@ -1499,8 +1463,6 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_NO_DEF},
         {"delete bucket shutdwn race", test_delete_bucket_shutdown_race,
          DEFAULT_CONFIG_NO_DEF},
-        {"expand bucket", test_expand_bucket, NULL},
-        {"expand missing bucket", test_expand_missing_bucket, NULL},
         {"list buckets with none", test_list_buckets_none, NULL},
         {"list buckets with one", test_list_buckets_one, NULL},
         {"list buckets", test_list_buckets_two, NULL},

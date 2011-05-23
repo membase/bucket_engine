@@ -1857,31 +1857,6 @@ static bool authorized(ENGINE_HANDLE* handle,
     return rv;
 }
 
-static ENGINE_ERROR_CODE handle_expand_bucket(ENGINE_HANDLE* handle,
-                                              const void* cookie,
-                                              protocol_binary_request_header *request,
-                                              ADD_RESPONSE response) {
-    protocol_binary_request_delete_bucket *breq =
-        (protocol_binary_request_delete_bucket*)request;
-
-    EXTRACT_KEY(breq, keyz);
-
-    proxied_engine_handle_t *proxied = find_bucket(keyz);
-
-    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
-    if (proxied) {
-        rv = proxied->pe.v1->unknown_command(handle, cookie, request, response);
-        release_handle(proxied);
-    } else {
-        const char *msg = "Engine not found";
-        response(NULL, 0, NULL, 0, msg, strlen(msg),
-                 0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                 0, cookie);
-    }
-
-    return rv;
-}
-
 static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
@@ -1914,8 +1889,6 @@ static inline bool is_admin_command(uint8_t opcode) {
     case CREATE_BUCKET_DEPRECATED:
     case DELETE_BUCKET:
     case DELETE_BUCKET_DEPRECATED:
-    case EXPAND_BUCKET:
-    case EXPAND_BUCKET_DEPRECATED:
     case LIST_BUCKETS:
     case LIST_BUCKETS_DEPRECATED:
     case SELECT_BUCKET:
@@ -1949,10 +1922,6 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
     case LIST_BUCKETS:
     case LIST_BUCKETS_DEPRECATED:
         rv = handle_list_buckets(handle, cookie, request, response);
-        break;
-    case EXPAND_BUCKET:
-    case EXPAND_BUCKET_DEPRECATED:
-        rv = handle_expand_bucket(handle, cookie, request, response);
         break;
     case SELECT_BUCKET:
     case SELECT_BUCKET_DEPRECATED:
