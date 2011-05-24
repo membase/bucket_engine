@@ -68,10 +68,23 @@ typedef struct proxied_engine_handle {
     volatile bucket_state_t state;
 } proxied_engine_handle_t;
 
+/**
+ * bucket_engine needs to store data specific to a given connection.
+ * In order to do that it utilize the "engine-specific" field for a
+ * cookie. Due to the fact that the underlying engine needs to be able
+ * to use the field as well, we need a holder-structure to contain
+ * the bucket-specific data and the underlying engine-specific data.
+ */
 typedef struct engine_specific {
+    /** The engine this cookie is connected to */
     proxied_engine_handle_t *peh;
-    void                    *engine_specific;
+    /** The userdata stored by the underlying engine */
+    void *engine_specific;
+    /** The number of times the underlying engine tried to reserve
+     * this connection */
     int reserved;
+    /** Did we receive an ON_DISCONNECT for this connection while it
+     * was reserved? */
     int notified;
 } engine_specific_t;
 
@@ -243,6 +256,9 @@ static void bucket_list_free(struct bucket_list *blist);
 static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e);
 
 
+/**
+ * This is the one and only instance of the bucket engine.
+ */
 struct bucket_engine bucket_engine = {
     .engine = {
         .interface = {
@@ -286,6 +302,11 @@ struct bucket_engine bucket_engine = {
     },
 };
 
+/**
+ * To help us detect if we're using free'd memory, let's write a
+ * pattern to the memory before releasing it. That makes it more easy
+ * to identify in a core file if we're operating on a freed memory area
+ */
 static void release_memory(void *ptr, size_t size)
 {
     memset(ptr, 0xae, size);
@@ -295,6 +316,11 @@ static void release_memory(void *ptr, size_t size)
 
 /* Internal utility functions */
 
+/**
+ * pthread_mutex_lock should _never_ fail, and instead
+ * of clutter the code with a lot of tests this logic is moved
+ * here.
+ */
 static void must_lock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_lock(mutex);
@@ -305,6 +331,11 @@ static void must_lock(pthread_mutex_t *mutex)
     }
 }
 
+/**
+ * pthread_mutex_unlock should _never_ fail, and instead
+ * of clutter the code with a lot of tests this logic is moved
+ * here.
+ */
 static void must_unlock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_unlock(mutex);
@@ -315,16 +346,28 @@ static void must_unlock(pthread_mutex_t *mutex)
     }
 }
 
+/**
+ * Access to the global list of engines is protected by a single lock.
+ * To make the code more readable we're using a separate function
+ * to acquire the lock
+ */
 static void lock_engines(void)
 {
     must_lock(&bucket_engine.engines_mutex);
 }
 
+/**
+ * This is the corresponding function to release the lock for
+ * the list of engines.
+ */
 static void unlock_engines(void)
 {
     must_unlock(&bucket_engine.engines_mutex);
 }
 
+/**
+ * Convert a bucket state (enum) t a textual string
+ */
 static const char * bucket_state_name(bucket_state_t s) {
     const char * rv = NULL;
     switch(s) {
@@ -338,15 +381,35 @@ static const char * bucket_state_name(bucket_state_t s) {
     return rv;
 }
 
+/**
+ * Helper function to get a pointer to the server API
+ */
 static SERVER_HANDLE_V1 *bucket_get_server_api(void) {
     return &bucket_engine.server;
 }
 
+/**
+ * Helper structure used by find_bucket_by_engine
+ */
 struct bucket_find_by_handle_data {
+    /** The engine we're searching for */
     ENGINE_HANDLE *needle;
+    /** The engine-handle for this engine */
     proxied_engine_handle_t *peh;
 };
 
+/**
+ * A callback function used by genhash_iter to locate the engine handle
+ * object for a given engine.
+ *
+ * @param key not used
+ * @param nkey not used
+ * @param val the engine handle stored at this position in the hash
+ * @param nval not used
+ * @param args pointer to a bucket_find_by_handle_data structure
+ *             used to pass the search cirtera into the function and
+ *             return the object (if found).
+ */
 static void find_bucket_by_engine(const void* key, size_t nkey,
                                   const void *val, size_t nval,
                                   void *args) {
@@ -363,6 +426,19 @@ static void find_bucket_by_engine(const void* key, size_t nkey,
     }
 }
 
+/**
+ * bucket_engine intercepts the calls from the underlying engine to
+ * register callbacks. During startup bucket engine registers a callback
+ * for ON_DISCONNECT in memcached, so we should always be notified
+ * whenever a client disconnects. The underlying engine may however also
+ * want this notification, so we intercept their attemt to register
+ * callbacks and forward the callback to the correct engine.
+ *
+ * This function will _always_ be called while we're holding the global
+ * lock for the hash table (during the call to "initialize" in the
+ * underlying engine. It is therefore safe to try to traverse the
+ * engines list.
+ */
 static void bucket_register_callback(ENGINE_HANDLE *eh,
                                      ENGINE_EVENT_TYPE type,
                                      EVENT_CALLBACK cb, const void *cb_data) {
@@ -393,6 +469,10 @@ static void bucket_register_callback(ENGINE_HANDLE *eh,
     }
 }
 
+/**
+ * The engine api allows the underlying engine to perform various callbacks
+ * This isn't implemented in bucket engine as of today.
+ */
 static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
                                      const void *data, const void *cookie) {
     (void)type;
@@ -401,21 +481,33 @@ static void bucket_perform_callbacks(ENGINE_EVENT_TYPE type,
     abort(); /* Not implemented */
 }
 
+/**
+ * Store engine-specific data in the engine-specific section of this
+ * cookie's data stored in the memcached core. The "upstream" cookie
+ * should have been registered during the "ON_CONNECT" callback, so it
+ * would be a bug if it isn't here anymore
+ */
 static void bucket_store_engine_specific(const void *cookie, void *engine_data) {
     engine_specific_t *es;
     es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
-
-    // There should *always* be an es here, because a bucket is trying
-    // to store data.  A bucket won't be there without an es.
     assert(es);
     es->engine_specific = engine_data;
 }
 
+/**
+ * Get the engine-specific data from the engine-specific section of
+ * this cookies data stored in the memcached core.
+ * @todo since the cookie should have been registered during ON_CONNECT
+ *       this should _ALWAYS_ be true?? right?
+ */
 static void* bucket_get_engine_specific(const void *cookie) {
     engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     return es ? es->engine_specific : NULL;
 }
 
+/**
+ * We don't allow the underlying engines to register or remove extensions
+ */
 static bool bucket_register_extension(extension_type_t type,
                                       void *extension) {
     (void)type;
@@ -423,18 +515,34 @@ static bool bucket_register_extension(extension_type_t type,
     return false;
 }
 
+/**
+ * Since you can't register an extension this function should _never_ be
+ * called...
+ */
 static void bucket_unregister_extension(extension_type_t type, void *extension) {
     (void)type;
     (void)extension;
     abort(); /* No extensions registered, none can unregister */
 }
 
+/**
+ * Get a given extension type from the memcached core.
+ * @todo Why do we overload this when all we do is wrap it directly?
+ */
 static void* bucket_get_extension(extension_type_t type) {
     return bucket_engine.upstream_server->extension->get_extension(type);
 }
 
 /* Engine API functions */
 
+/**
+ * This is the public entry point for bucket_engine. It is called by
+ * the memcached core and is responsible for doing basic allocation and
+ * initialization of the one and only instance of the bucket_engine object.
+ *
+ * The "normal" initialization is performed in bucket_initialize which is
+ * called from the memcached core after a successful call to create_instance.
+ */
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API gsapi,
                                   ENGINE_HANDLE **handle) {
@@ -474,6 +582,15 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Release the reference to the proxied enine handle. Releasing the
+ * engine handle may cause the shutdown of an engine to start (if this
+ * was the last connection returning from a call inside the engine).
+ * We should also notify the bucket shutdown thread if this was the
+ * last reference to the bucket and the shutdown thread is waiting
+ * for the cookies to release the engine before its memory may be
+ * removed.
+ */
 static void release_handle_locked(proxied_engine_handle_t *peh) {
     assert(peh->refcount > 0);
     peh->refcount--;
@@ -490,6 +607,12 @@ static void release_handle_locked(proxied_engine_handle_t *peh) {
     }
 }
 
+/**
+ * Grab the engine handle mutex and release the proxied engine handle.
+ * The function currently allows you to call it with a NULL pointer,
+ * but that should be replaced (we should have better control of if we
+ * have an engine handle or not....)
+ */
 static void release_handle(proxied_engine_handle_t *peh) {
     if (!peh) {
         return;
@@ -500,13 +623,21 @@ static void release_handle(proxied_engine_handle_t *peh) {
     must_unlock(&peh->lock);
 }
 
+/**
+ * Helper function to search for a named bucket in the list of engines
+ * You must wrap this call with (un)lock_engines() in order for it to
+ * be mt-safe
+ */
 static proxied_engine_handle_t *find_bucket_inner(const char *name) {
     return genhash_find(bucket_engine.engines, name, strlen(name));
 }
 
-/* returns proxied_engine_handle_t for bucket with given name. This
- * increments refcount of returned handle, so caller is responsible
- * for calling release_handle on it. */
+/**
+ * Search the list of buckets for a named bucket. If the bucket
+ * exists and is in a runnable state, it's reference count is
+ * incremented and returned. The caller is responsible for
+ * releasing the handle with release_handle.
+*/
 static proxied_engine_handle_t *find_bucket(const char *name) {
     lock_engines();
     proxied_engine_handle_t *rv = find_bucket_inner(name);
@@ -524,6 +655,12 @@ static proxied_engine_handle_t *find_bucket(const char *name) {
     return rv;
 }
 
+/**
+ * If the bucket is in a runnable state, increment its reference counter
+ * and return its handle. Otherwise a NIL pointer is returned.
+ * The caller is responsible for releasing the handle
+ * with release_handle.
+ */
 static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     proxied_engine_handle_t *rv = NULL;
     if (peh) {
@@ -538,6 +675,9 @@ static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     return rv;
 }
 
+/**
+ * Validate that the bucket name only consists of legal characters
+ */
 static bool has_valid_bucket_name(const char *n) {
     bool rv = n[0] != 0;
     for (; *n; n++) {
@@ -546,7 +686,9 @@ static bool has_valid_bucket_name(const char *n) {
     return rv;
 }
 
-/* fills engine handle. Assumes that it's zeroed already */
+/**
+ * Initialize a proxied engine handle. (Assumes that it's zeroed already
+*/
 static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const char *name, const char *module) {
     peh->stats = bucket_engine.upstream_server->stat->new_stats();
     assert(peh->stats);
@@ -575,6 +717,11 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Release the allocated resources within a proxied engine handle.
+ * Use free_engine_handle if you like to release the memory for the
+ * proxied engine handle itself...
+ */
 static void uninit_engine_handle(proxied_engine_handle_t *peh) {
     pthread_mutex_destroy(&peh->lock);
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
@@ -584,13 +731,19 @@ static void uninit_engine_handle(proxied_engine_handle_t *peh) {
     }
 }
 
+/**
+ * Release all resources used by a proxied engine handle and
+ * invalidate the proxied engine handle itself.
+ */
 static void free_engine_handle(proxied_engine_handle_t *peh) {
     uninit_engine_handle(peh);
     release_memory(peh, sizeof(*peh));
 }
 
-/* Creates bucket and places it's handle into *e_out. NOTE: that
- * caller is responsible for calling release_handle on that handle */
+/**
+ * Creates bucket and places it's handle into *e_out. NOTE: that
+ * caller is responsible for calling release_handle on that handle
+ */
 static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
                                        const char *bucket_name,
                                        const char *path,
@@ -672,14 +825,20 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
     return rv;
 }
 
-/* Returns engine handle for this connection. Every access to
- * underlying engine must go through this function. */
+/**
+ * Returns engine handle for this connection.
+ * All access to underlying engine must go through this function, because
+ * we keep a counter of how many cookies that are currently calling into
+ * the engine..
+ */
 static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
                                                   const void *cookie) {
     struct bucket_engine *e = (struct bucket_engine*)h;
     engine_specific_t *es;
     es = e->upstream_server->cookie->get_engine_specific(cookie);
     if (!es) {
+        // is this really possible??? I thought we stored this in
+        // ON_CONNECT?
         return NULL;
     }
 
@@ -705,6 +864,9 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
     return peh;
 }
 
+/**
+ * Set the engine handle for a cookie (create if it doesn't exist)
+ */
 static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
                                                   const void *cookie,
                                                   proxied_engine_handle_t *peh) {
@@ -720,34 +882,58 @@ static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
     // In with the new
     es->peh = retain_handle(peh);
 
-    // out with the old
+    // out with the old (this may be NULL if we did't have an associated
+    // strucure...
     release_handle(old);
     return es->peh;
 }
 
+/**
+ * Helper function used to get the engine structure for a cookie.
+ */
 static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
                                            const void *cookie) {
     proxied_engine_handle_t *peh = get_engine_handle(h, cookie);
     return peh ? &peh->pe : NULL;
 }
 
+/**
+ * Get the proxied engine handle for the proxied engine
+ */
 static proxied_engine_handle_t *get_proxied_handle(proxied_engine_t *e) {
     return (proxied_engine_handle_t *)(((char *)e) - offsetof(proxied_engine_handle_t, pe));
 }
 
+/**
+ * Helper function to convert an ENGINE_HANDLE* to a bucket engine pointer
+ * without a cast
+ */
 static inline struct bucket_engine* get_handle(ENGINE_HANDLE* handle) {
     return (struct bucket_engine*)handle;
 }
 
+/**
+ * Implementation of the the get_info function in the engine interface
+ */
 static const engine_info* bucket_get_info(ENGINE_HANDLE* handle) {
     return &(get_handle(handle)->info.engine_info);
 }
 
+/***********************************************************
+ **       Implementation of functions used by genhash     **
+ **********************************************************/
+
+/**
+ * Function used by genhash to check if two keys differ
+ */
 static int my_hash_eq(const void *k1, size_t nkey1,
                       const void *k2, size_t nkey2) {
     return nkey1 == nkey2 && memcmp(k1, k2, nkey1) == 0;
 }
 
+/**
+ * Function used by genhash to create a copy of a key
+ */
 static void* hash_strdup(const void *k, size_t nkey) {
     void *rv = calloc(nkey, 1);
     assert(rv);
@@ -755,6 +941,11 @@ static void* hash_strdup(const void *k, size_t nkey) {
     return rv;
 }
 
+/**
+ * Function used by genhash to create a copy of the value (this is
+ * the proxied engine handle). We don't copy that value, instead
+ * we increase the reference count.
+ */
 static void* refcount_dup(const void* ob, size_t vlen) {
     (void)vlen;
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
@@ -765,12 +956,26 @@ static void* refcount_dup(const void* ob, size_t vlen) {
     return (void*)ob;
 }
 
+/**
+ * Function used by genhash to release an object.
+ * @todo investigate this..
+ */
 static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     assert(peh);
     peh->state = STATE_NULL;
 }
 
+/**
+ * Try to load a shared object and create an engine.
+ *
+ * @param dlhandle The pointer to the loaded object (OUT). The caller is
+ *                 responsible for calling dlcose() to release the resources
+ *                 if the function succeeds.
+ * @param soname The name of the shared object to load
+ * @return A pointer to the created instance, or NULL if anything
+ *         failed.
+ */
 static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname) {
     ENGINE_HANDLE *engine = NULL;
     /* Hack to remove the warning from C99 */
@@ -814,6 +1019,10 @@ static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname) {
     *dlhandle = handle;
     return engine;
 }
+
+/***********************************************************
+ **  Implementation of callbacks from the memcached core  **
+ **********************************************************/
 
 /**
  * Handle the situation when a connection is disconnected
@@ -884,11 +1093,24 @@ static void handle_disconnect(const void *cookie,
     }
 }
 
+/**
+ * Callback from the memcached core for a new connection. Associate
+ * it with the default bucket (if it exists) and create an engine
+ * specific structure.
+ * @todo create a new method to create the engine specific data
+ *       structure and call it from here. (then we can nuke the test in
+ *       set engine_specific)
+ *
+ * @param cookie the cookie representing the connection
+ * @param type The kind of event (should be ON_CONNECT)
+ * @param event_data not used
+ * @param cb_data The bucket instance in use
+ */
 static void handle_connect(const void *cookie,
                            ENGINE_EVENT_TYPE type,
                            const void *event_data,
                            const void *cb_data) {
-    (void)type;
+    assert(type == ON_CONNECT);
     (void)event_data;
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
@@ -917,11 +1139,21 @@ static void handle_connect(const void *cookie,
     release_handle(peh);
 }
 
+/**
+ * Callback from the memcached core that a cookie succesfully
+ * authenticated itself. Associate the cookie with the bucket it is
+ * authenticated to.
+ *
+ * @param cookie the cookie representing the connection
+ * @param type The kind of event (should be ON_AUTH)
+ * @param event_data The authentication data
+ * @param cb_data The bucket instance in use
+ */
 static void handle_auth(const void *cookie,
                         ENGINE_EVENT_TYPE type,
                         const void *event_data,
                         const void *cb_data) {
-    (void)type;
+    assert(type == ON_AUTH);
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
 
     const auth_data_t *auth_data = (const auth_data_t*)event_data;
@@ -934,6 +1166,9 @@ static void handle_auth(const void *cookie,
     release_handle(peh);
 }
 
+/**
+ * Initialize the default bucket.
+ */
 static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se)
 {
     ENGINE_ERROR_CODE ret;
@@ -957,6 +1192,12 @@ static ENGINE_ERROR_CODE init_default_bucket(struct bucket_engine* se)
     return ret;
 }
 
+/**
+ * This is the implementation of the "initialize" function in the engine
+ * interface. It is called right after create_instance if memcached liked
+ * the interface we returned. Perform all initialization and load the
+ * default bucket (if specified in the config string).
+ */
 static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
                                            const char* config_str) {
     struct bucket_engine* se = get_handle(handle);
@@ -1028,6 +1269,16 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * During normal shutdown we want to shut down all of the engines
+ * cleanly. The bucket_shutdown_engine is an implementation of a
+ * "genhash iterator", so it is called once for each engine
+ * stored in the hash table.
+ *
+ * No client connections should be running during the invocation
+ * of this function, so we don't have to check if there is any
+ * threads currently calling into the engine.
+ */
 static void bucket_shutdown_engine(const void* key, size_t nkey,
                                    const void *val, size_t nval,
                                    void *args) {
@@ -1042,6 +1293,17 @@ static void bucket_shutdown_engine(const void* key, size_t nkey,
     }
 }
 
+/**
+ * This is the implementation of the "destroy" function in the engine
+ * interface. It is called from memcached when memcached is shutting down,
+ * and memcached will never again reference this object when the function
+ * returns. Try to shut down all of the loaded engines cleanly.
+ *
+ * @todo we should probably pass the force variable down to the iterator.
+ *       Right now the core will always specify false here, but that may
+ *       change in the future...
+ *
+ */
 static void bucket_destroy(ENGINE_HANDLE* handle,
                            const bool force) {
     (void)force;
@@ -1081,6 +1343,18 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
     se->initialized = false;
 }
 
+/**
+ * The deletion (shutdown) of a bucket is performed by its own thread
+ * for simplicity (since we can't block the worker threads while we're
+ * waiting for all of the connections to leave the engine).
+ *
+ * The state for the proxied_engine_handle should be "STOPPING" before
+ * the thread is started, so that no new connections are allowed access
+ * into the engine. Since we don't have any connections calling functions
+ * into the engine we can safely start shutdown of the engine, but we can't
+ * delete the proxied engine handle until all of the connections has
+ * released their reference to the proxied engine handle.
+ */
 static void *engine_shutdown_thread(void *arg) {
     bool skip;
     must_lock(&bucket_engine.shutdown.mutex);
@@ -1185,6 +1459,11 @@ static void *engine_shutdown_thread(void *arg) {
     return NULL;
 }
 
+/**
+ * Check to see if we should start shutdown of the specified engine. The
+ * critera for starting shutdown is that no clients are currently calling
+ * into the engine, and that someone requested shutdown of that engine.
+ */
 static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
     if (e->clients == 0 && e->state == STATE_STOP_REQUESTED) {
         // There are no client threads calling into function in the engine
@@ -1208,7 +1487,6 @@ static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
     }
 }
 
-
 /**
  * The client returned from the call inside the engine. If this was the
  * last client inside the engine, and the engine is scheduled for removal
@@ -1223,7 +1501,14 @@ static void release_engine_handle(proxied_engine_handle_t *engine) {
     must_unlock(&engine->lock);
 }
 
-
+/**
+ * Implementation of the "item_allocate" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               item **itm,
@@ -1244,6 +1529,14 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "item_delete" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
@@ -1261,6 +1554,16 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "item_release" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running".
+ *
+ * @todo we don't have a way to return the error here... verify
+ *       that the logic is in place so that we can allow multiple
+ *       bogus releases..
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* itm) {
@@ -1271,6 +1574,14 @@ static void bucket_item_release(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "get" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
                                     item** itm,
@@ -1289,8 +1600,8 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
 }
 
 static void add_engine(const void *key, size_t nkey,
-                  const void *val, size_t nval,
-                  void *arg) {
+                       const void *val, size_t nval,
+                       void *arg) {
     (void)nval;
     struct bucket_list **blist_ptr = (struct bucket_list **)arg;
     struct bucket_list *n = calloc(sizeof(struct bucket_list), 1);
@@ -1328,6 +1639,14 @@ static void bucket_list_free(struct bucket_list *blist) {
     }
 }
 
+/**
+ * Implementation of the "aggregate_stats" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
                                                 void (*callback)(void*, void*),
@@ -1366,6 +1685,9 @@ static void stat_ht_builder(const void *key, size_t nkey,
                   ctx->cookie);
 }
 
+/**
+ * Get bucket-engine specific statistics
+ */
 static ENGINE_ERROR_CODE get_bucket_stats(ENGINE_HANDLE* handle,
                                           const void *cookie,
                                           ADD_STAT add_stat) {
@@ -1383,6 +1705,14 @@ static ENGINE_ERROR_CODE get_bucket_stats(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Implementation of the "get_stats" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const char* stat_key,
@@ -1414,6 +1744,15 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     return rc;
 }
 
+/**
+ * Implementation of the "get_stats_struct" function in the engine
+ * specification. Look up the correct engine and and verify it's
+ * state.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ * @todo verify that the logic handles multiple calls to this for a
+ *       bucket in the wrong state
+ */
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie)
 {
@@ -1433,6 +1772,14 @@ static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
     return rv;
 }
 
+/**
+ * Implementation of the "store" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
                                       item* itm,
@@ -1450,6 +1797,14 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "arithmetic" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const void* cookie,
                                            const void* key,
@@ -1475,6 +1830,14 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "flush" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ */
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
                                       const void* cookie, time_t when) {
     proxied_engine_t *e = get_engine(handle, cookie);
@@ -1488,6 +1851,16 @@ static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the "reset_stats" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ * @todo verify that the logic handles multiple calls to this for a
+ *       bucket in the wrong state
+ */
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     proxied_engine_t *e = get_engine(handle, cookie);
     if (e) {
@@ -1496,6 +1869,16 @@ static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
     }
 }
 
+/**
+ * Implementation of the "get_item_info" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ * @todo verify that the logic handles multiple calls to this for a
+ *       bucket in the wrong state
+ */
 static bool bucket_get_item_info(ENGINE_HANDLE *handle,
                                  const void *cookie,
                                  const item* itm,
@@ -1510,6 +1893,16 @@ static bool bucket_get_item_info(ENGINE_HANDLE *handle,
     }
 }
 
+/**
+ * Implementation of the "item_set_cas" function in the engine
+ * specification. Look up the correct engine and call into the
+ * underlying engine if the underlying engine is "running". Disconnect
+ * the caller if the engine isn't "running" anymore.
+ *
+ * @todo replace get_engine with a call to get the proxied handle..
+ * @todo verify that the logic handles multiple calls to this for a
+ *       bucket in the wrong state
+ */
 static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
                                 item *itm, uint64_t cas) {
     proxied_engine_t *e = get_engine(handle, cookie);
@@ -1519,6 +1912,11 @@ static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
     }
 }
 
+/**
+ * Implenentation of the tap notify in the bucket engine. Verify
+ * that the bucket exists (and is in the correct state) before
+ * wrapping into the engines implementationof tap notify.
+ */
 static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
                                            const void *cookie,
                                            void *engine_specific,
@@ -1549,6 +1947,11 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * A specialized tap iterator that verifies that the bucket it is
+ * connected to actually exists and is in the correct state before
+ * calling into the engine.
+ */
 static tap_event_t bucket_tap_iterator_shim(ENGINE_HANDLE* handle,
                                             const void *cookie,
                                             item **itm,
@@ -1574,6 +1977,12 @@ static tap_event_t bucket_tap_iterator_shim(ENGINE_HANDLE* handle,
     }
 }
 
+/**
+ * Implementation of the get_tap_iterator from the engine API.
+ * If the cookie is associated with an engine who supports a tap
+ * iterator we should return the internal shim iterator so that we
+ * verify access every time we try to iterate.
+ */
 static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
                                             const void* client, size_t nclient,
                                             uint32_t flags,
@@ -1594,6 +2003,12 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
     return ret;
 }
 
+
+/**
+ * Implementation of the errinfo function in the engine api.
+ * If the cookie is connected to an engine should proxy the function down
+ * into the engine
+ */
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz) {
     proxied_engine_t *e = get_engine(handle, cookie);
@@ -1668,12 +2083,23 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
     return ret;
 }
 
+/***********************************************************
+ ** Implementation of the bucket-engine specific commands **
+ **********************************************************/
+
+/**
+ * EXTRACT_KEY is a small helper macro that creates a character array
+ * containing a zero-terminated version of the key in the buffer.
+ */
 #define EXTRACT_KEY(req, out)                                       \
     char keyz[ntohs(req->message.header.request.keylen) + 1];       \
     memcpy(keyz, ((char*)request) + sizeof(req->message.header),    \
            ntohs(req->message.header.request.keylen));              \
     keyz[ntohs(req->message.header.request.keylen)] = 0x00;
 
+/**
+ * Implementation of the "CREATE" command.
+ */
 static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
@@ -1729,6 +2155,21 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Implementation of the "DELETE" command. The delete command shuts down
+ * the engine and waits for it's termination before sending the response
+ * back to the caller. The user may specify if we should run a gracefull
+ * shutdown (let the engine persist everything etc), or if it should
+ * just stop as fast as possible. Please note that bucket_engine can only
+ * notify the engine about this, because we need to wait until the engine
+ * reports that it is done (otherwise it may still have threads running
+ * etc).
+ *
+ * We can't block the client thread while waiting for the engine to shut
+ * down, so instead we store the pointer to the request in the user-specific
+ * data section to preserve the information before we return EWOULDBLOCK
+ * back to the client.
+ */
 static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
@@ -1782,6 +2223,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
                 release_handle_locked(peh);
             }
             must_unlock(&peh->lock);
+            // and drop this reference
             release_handle(peh);
         }
 
@@ -1803,6 +2245,11 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Implementation of the "LIST" command. This command returns a single
+ * packet with the names of all the buckets separated by the space
+ * character.
+ */
 static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              protocol_binary_request_header *request,
@@ -1849,6 +2296,10 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Implementation of the "SELECT" command. The SELECT command associates
+ * the cookie with the named bucket.
+ */
 static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
@@ -1873,6 +2324,13 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
+/**
+ * Check if a command opcode is one of the commands bucket_engine
+ * implements. Bucket_engine used command opcodes from the reserved range
+ * earlier, so in order to preserve backward compatibility we currently
+ * accept both. We should however drop the deprecated ones for the
+ * next release.
+ */
 static inline bool is_admin_command(uint8_t opcode) {
     switch (opcode) {
     case CREATE_BUCKET:
