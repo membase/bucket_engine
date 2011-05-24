@@ -1736,8 +1736,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
     (void)handle;
     void *userdata = bucket_get_engine_specific(cookie);
     if (userdata == NULL) {
-        protocol_binary_request_delete_bucket *breq =
-            (protocol_binary_request_delete_bucket*)request;
+        protocol_binary_request_delete_bucket *breq = (void*)request;
 
         EXTRACT_KEY(breq, keyz);
 
@@ -1854,8 +1853,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response) {
-    protocol_binary_request_delete_bucket *breq =
-        (protocol_binary_request_delete_bucket*)request;
+    protocol_binary_request_delete_bucket *breq = (void*)request;
 
     EXTRACT_KEY(breq, keyz);
 
