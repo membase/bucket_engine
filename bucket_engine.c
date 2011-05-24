@@ -1794,7 +1794,8 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         logger->log(EXTENSION_LOG_INFO, NULL,
                     "Sending message back to the core\n");
         bucket_store_engine_specific(cookie, NULL);
-        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
+        response(NULL, 0, NULL, 0, NULL, 0, 0,
+                 PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
     }
 
     return ENGINE_SUCCESS;
@@ -1838,9 +1839,9 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     // Response body will be "" in the case of an empty response.
     // Otherwise, it needs to account for the trailing space of the
     // above append code.
-    response("", 0, "", 0, blist_txt,
+    response(NULL, 0, NULL, 0, blist_txt,
              n == 0 ? 0 : (sizeof(char) * n + len) - 1,
-             0, 0, 0, cookie);
+             0, PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
     free(blist_txt);
 
     return ENGINE_SUCCESS;
@@ -1861,12 +1862,12 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
-        response("", 0, "", 0, "", 0, 0, 0, 0, cookie);
+        response(NULL, 0, NULL, 0, NULL, 0, 0,
+                 PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
     } else {
         const char *msg = "Engine not found";
-        response(NULL, 0, NULL, 0, msg, strlen(msg),
-                 0, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                 0, cookie);
+        response(NULL, 0, NULL, 0, msg, strlen(msg), 0,
+                 PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0, cookie);
     }
 
     return rv;
