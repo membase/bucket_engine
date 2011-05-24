@@ -298,13 +298,21 @@ static void release_memory(void *ptr, size_t size)
 static void must_lock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_lock(mutex);
-    assert(rv == 0);
+    if (rv != 0) {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "FATAL: Failed to lock mutex: %d", rv);
+        abort();
+    }
 }
 
 static void must_unlock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_unlock(mutex);
-    assert(rv == 0);
+    if (rv != 0) {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "FATAL: Failed to release mutex: %d", rv);
+        abort();
+    }
 }
 
 static void lock_engines(void)
