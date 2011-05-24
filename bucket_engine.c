@@ -1675,20 +1675,20 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
     keyz[ntohs(req->message.header.request.keylen)] = 0x00;
 
 static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
-                                       const void* cookie,
-                                       protocol_binary_request_header *request,
-                                       ADD_RESPONSE response) {
-    struct bucket_engine *e = (struct bucket_engine*)handle;
-    protocol_binary_request_create_bucket *breq =
-        (protocol_binary_request_create_bucket*)request;
+                                              const void* cookie,
+                                              protocol_binary_request_header *request,
+                                              ADD_RESPONSE response) {
+    struct bucket_engine *e = (void*)handle;
+    protocol_binary_request_create_bucket *breq = (void*)request;
 
     EXTRACT_KEY(breq, keyz);
 
     size_t bodylen = ntohl(breq->message.header.request.bodylen)
         - ntohs(breq->message.header.request.keylen);
 
-    if (bodylen >= (1 << 16)) // 64k ought to be enough for anybody
+    if (bodylen >= (1 << 16)) { // 64k ought to be enough for anybody
         return ENGINE_DISCONNECT;
+    }
 
     char spec[bodylen + 1];
     memcpy(spec, ((char*)request) + sizeof(breq->message.header)
@@ -1709,15 +1709,13 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     const size_t msglen = 1024;
     char msg[msglen];
     msg[0] = 0;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec,
-                                          config ? config : "",
+    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec, config,
                                           NULL, msg, msglen);
 
-    protocol_binary_response_status rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
-
+    protocol_binary_response_status rc;
     switch(ret) {
     case ENGINE_SUCCESS:
-        // Defaults as above.
+        rc = PROTOCOL_BINARY_RESPONSE_SUCCESS;
         break;
     case ENGINE_KEY_EEXISTS:
         rc = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
