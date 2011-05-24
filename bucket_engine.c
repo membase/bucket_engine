@@ -636,29 +636,6 @@ static proxied_engine_handle_t *find_bucket_inner(const char *name) {
 }
 
 /**
- * Search the list of buckets for a named bucket. If the bucket
- * exists and is in a runnable state, it's reference count is
- * incremented and returned. The caller is responsible for
- * releasing the handle with release_handle.
-*/
-static proxied_engine_handle_t *find_bucket(const char *name) {
-    lock_engines();
-    proxied_engine_handle_t *rv = find_bucket_inner(name);
-    if (rv) {
-        pthread_mutex_t *lock = &rv->lock;
-        must_lock(lock);
-        if (rv->state == STATE_RUNNING) {
-            rv->refcount++;
-        } else {
-            rv = NULL;
-        }
-        must_unlock(lock);
-    }
-    unlock_engines();
-    return rv;
-}
-
-/**
  * If the bucket is in a runnable state, increment its reference counter
  * and return its handle. Otherwise a NIL pointer is returned.
  * The caller is responsible for releasing the handle
@@ -675,6 +652,19 @@ static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
         }
         must_unlock(&peh->lock);
     }
+    return rv;
+}
+
+/**
+ * Search the list of buckets for a named bucket. If the bucket
+ * exists and is in a runnable state, it's reference count is
+ * incremented and returned. The caller is responsible for
+ * releasing the handle with release_handle.
+*/
+static proxied_engine_handle_t *find_bucket(const char *name) {
+    lock_engines();
+    proxied_engine_handle_t *rv = retain_handle(find_bucket_inner(name));
+    unlock_engines();
     return rv;
 }
 
