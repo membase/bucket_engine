@@ -494,12 +494,11 @@ static void bucket_store_engine_specific(const void *cookie, void *engine_data) 
 /**
  * Get the engine-specific data from the engine-specific section of
  * this cookies data stored in the memcached core.
- * @todo since the cookie should have been registered during ON_CONNECT
- *       this should _ALWAYS_ be true?? right?
  */
 static void* bucket_get_engine_specific(const void *cookie) {
     engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
-    return es ? es->engine_specific : NULL;
+    assert(es);
+    return es->engine_specific;
 }
 
 /**
