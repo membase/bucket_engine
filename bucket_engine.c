@@ -509,6 +509,9 @@ static bool bucket_register_extension(extension_type_t type,
                                       void *extension) {
     (void)type;
     (void)extension;
+    logger->log(EXTENSION_LOG_WARNING, NULL,
+                "Extension support isn't implemented in this version "
+                "of bucket_engine");
     return false;
 }
 
@@ -519,6 +522,9 @@ static bool bucket_register_extension(extension_type_t type,
 static void bucket_unregister_extension(extension_type_t type, void *extension) {
     (void)type;
     (void)extension;
+    logger->log(EXTENSION_LOG_WARNING, NULL,
+                "Extension support isn't implemented in this version "
+                "of bucket_engine");
     abort(); /* No extensions registered, none can unregister */
 }
 
