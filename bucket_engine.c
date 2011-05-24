@@ -1846,25 +1846,6 @@ static ENGINE_ERROR_CODE handle_list_buckets(ENGINE_HANDLE* handle,
     return ENGINE_SUCCESS;
 }
 
-static bool is_authorized(ENGINE_HANDLE* handle,
-                       const void* cookie) {
-    // During testing you might want to skip the auth phase...
-    if (getenv("BUCKET_ENGINE_DIABLE_AUTH_PHASE") != NULL) {
-        return true;
-    }
-
-    struct bucket_engine *e = (struct bucket_engine*)handle;
-    bool rv = false;
-    if (e->admin_user) {
-        auth_data_t data = {.username = 0, .config = 0};
-        e->upstream_server->cookie->get_auth_data(cookie, &data);
-        if (data.username) {
-            rv = strcmp(data.username, e->admin_user) == 0;
-        }
-    }
-    return rv;
-}
-
 static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
@@ -1905,6 +1886,27 @@ static inline bool is_admin_command(uint8_t opcode) {
     default:
         return false;
     }
+}
+
+/**
+ * Check to see if this cookie is authorized as the admin user
+ */
+static bool is_authorized(ENGINE_HANDLE* handle, const void* cookie) {
+    // During testing you might want to skip the auth phase...
+    if (getenv("BUCKET_ENGINE_DIABLE_AUTH_PHASE") != NULL) {
+        return true;
+    }
+
+    struct bucket_engine *e = (struct bucket_engine*)handle;
+    bool rv = false;
+    if (e->admin_user) {
+        auth_data_t data = {.username = 0, .config = 0};
+        e->upstream_server->cookie->get_auth_data(cookie, &data);
+        if (data.username) {
+            rv = strcmp(data.username, e->admin_user) == 0;
+        }
+    }
+    return rv;
 }
 
 /**
