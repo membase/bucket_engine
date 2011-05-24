@@ -853,6 +853,33 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
 }
 
 /**
+ * Returns engine handle for this connection.
+ * All access to underlying engine must go through this function, because
+ * we keep a counter of how many cookies that are currently calling into
+ * the engine..
+ */
+static proxied_engine_handle_t *try_get_engine_handle(ENGINE_HANDLE *h,
+                                                      const void *cookie) {
+    struct bucket_engine *e = (struct bucket_engine*)h;
+    engine_specific_t *es;
+    es = e->upstream_server->cookie->get_engine_specific(cookie);
+    if (es == NULL || es->peh == NULL) {
+        return NULL;
+    }
+    proxied_engine_handle_t *peh = es->peh;
+    proxied_engine_handle_t *ret = NULL;
+
+    must_lock(&peh->lock);
+    if (peh->state == STATE_RUNNING) {
+        peh->clients++;
+        ret = peh;
+    }
+    must_unlock(&peh->lock);
+
+    return peh;
+}
+
+/**
  * Create an engine specific section for the cookie
  */
 static void create_engine_specific(struct bucket_engine *e,
@@ -1553,19 +1580,18 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
  * Implementation of the "item_release" function in the engine
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running".
- *
- * @todo we don't have a way to return the error here... verify
- *       that the logic is in place so that we can allow multiple
- *       bogus releases..
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
                                 item* itm) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
-        e->v1->release(e->v0, cookie, itm);
-        release_engine_handle(get_proxied_handle(e));
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    if (peh) {
+        peh->pe.v1->release(peh->pe.v0, cookie, itm);
+        release_engine_handle(peh);
+    } else {
+        logger->log(EXTENSION_LOG_DEBUG, NULL,
+                    "Potential memory leak. Failed to get engine handle for %p",
+                    cookie);
     }
 }
 
@@ -1849,61 +1875,50 @@ static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
 /**
  * Implementation of the "reset_stats" function in the engine
  * specification. Look up the correct engine and call into the
- * underlying engine if the underlying engine is "running". Disconnect
- * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
- * @todo verify that the logic handles multiple calls to this for a
- *       bucket in the wrong state
+ * underlying engine if the underlying engine is "running".
  */
 static void bucket_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
-        e->v1->reset_stats(e->v0, cookie);
-        release_engine_handle(get_proxied_handle(e));
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    if (peh) {
+        peh->pe.v1->reset_stats(peh->pe.v0, cookie);
+        release_engine_handle(peh);
     }
 }
 
 /**
  * Implementation of the "get_item_info" function in the engine
  * specification. Look up the correct engine and call into the
- * underlying engine if the underlying engine is "running". Disconnect
- * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
- * @todo verify that the logic handles multiple calls to this for a
- *       bucket in the wrong state
+ * underlying engine if the underlying engine is "running".
  */
 static bool bucket_get_item_info(ENGINE_HANDLE *handle,
                                  const void *cookie,
                                  const item* itm,
                                  item_info *itm_info) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
-        bool ret = e->v1->get_item_info(e->v0, cookie, itm, itm_info);
-        release_engine_handle(get_proxied_handle(e));
-        return ret;
-    } else {
-        return false;
+    bool ret = false;
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    if (peh) {
+        ret = peh->pe.v1->get_item_info(peh->pe.v0, cookie, itm, itm_info);
+        release_engine_handle(peh);
     }
+
+    return ret;
 }
 
 /**
  * Implementation of the "item_set_cas" function in the engine
  * specification. Look up the correct engine and call into the
- * underlying engine if the underlying engine is "running". Disconnect
- * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
- * @todo verify that the logic handles multiple calls to this for a
- *       bucket in the wrong state
+ * underlying engine if the underlying engine is "running".
  */
 static void bucket_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
                                 item *itm, uint64_t cas) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
-        e->v1->item_set_cas(e->v0, cookie, itm, cas);
-        release_engine_handle(get_proxied_handle(e));
+
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    if (peh) {
+        peh->pe.v1->item_set_cas(peh->pe.v0, cookie, itm, cas);
+        release_engine_handle(peh);
+    } else {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "The engine is no longer there... %p", cookie);
     }
 }
 
@@ -2006,14 +2021,14 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
  */
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz) {
-    proxied_engine_t *e = get_engine(handle, cookie);
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
     size_t ret = 0;
 
-    if (e) {
-        if (e->v1->errinfo) {
-            ret = e->v1->errinfo(e->v0, cookie, buffer, buffsz);
+    if (peh) {
+        if (peh->pe.v1->errinfo) {
+            ret = peh->pe.v1->errinfo(peh->pe.v0, cookie, buffer, buffsz);
         }
-        release_engine_handle(get_proxied_handle(e));
+        release_engine_handle(peh);
     }
 
     return ret;
