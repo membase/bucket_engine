@@ -1796,8 +1796,6 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
                      0, cookie);
         }
     } else {
-        logger->log(EXTENSION_LOG_INFO, NULL,
-                    "Sending message back to the core\n");
         bucket_store_engine_specific(cookie, NULL);
         response(NULL, 0, NULL, 0, NULL, 0, 0,
                  PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
