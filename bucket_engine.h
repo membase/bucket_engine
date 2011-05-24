@@ -20,5 +20,6 @@
 typedef protocol_binary_request_no_extras protocol_binary_request_create_bucket;
 typedef protocol_binary_request_no_extras protocol_binary_request_delete_bucket;
 typedef protocol_binary_request_no_extras protocol_binary_request_list_buckets;
+typedef protocol_binary_request_no_extras protocol_binary_request_select_bucket;
 
 #endif /* BUCKET_ENGINE_H */

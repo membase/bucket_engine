@@ -1853,7 +1853,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                                               const void* cookie,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response) {
-    protocol_binary_request_delete_bucket *breq = (void*)request;
+    protocol_binary_request_select_bucket *breq = (void*)request;
 
     EXTRACT_KEY(breq, keyz);
 
