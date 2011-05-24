@@ -240,6 +240,8 @@ static void free_engine_handle(proxied_engine_handle_t *);
 
 static bool list_buckets(struct bucket_engine *e, struct bucket_list **blist);
 static void bucket_list_free(struct bucket_list *blist);
+static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e);
+
 
 struct bucket_engine bucket_engine = {
     .engine = {
@@ -289,9 +291,6 @@ static void release_memory(void *ptr, size_t size)
     memset(ptr, 0xae, size);
     free(ptr);
 }
-
-
-static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e);
 
 
 /* Internal utility functions */
