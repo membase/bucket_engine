@@ -450,11 +450,8 @@ static void bucket_register_callback(ENGINE_HANDLE *eh,
     /* Assume this always happens while holding the hash table lock. */
     /* This is called from underlying engine 'initialize' handler
      * which we invoke with engines_mutex held */
-
-    struct {
-        ENGINE_HANDLE *needle;
-        proxied_engine_handle_t *peh;
-    } find_data = { eh, NULL };
+    struct bucket_find_by_handle_data find_data = { .needle = eh,
+                                                    .peh = NULL };
 
     genhash_iter(bucket_engine.engines, find_bucket_by_engine, &find_data);
 
