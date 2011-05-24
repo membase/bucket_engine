@@ -829,11 +829,7 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
     struct bucket_engine *e = (struct bucket_engine*)h;
     engine_specific_t *es;
     es = e->upstream_server->cookie->get_engine_specific(cookie);
-    if (!es) {
-        // is this really possible??? I thought we stored this in
-        // ON_CONNECT?
-        return NULL;
-    }
+    assert(es);
 
     proxied_engine_handle_t *peh = es->peh;
     if (!peh) {
@@ -858,18 +854,28 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
 }
 
 /**
+ * Create an engine specific section for the cookie
+ */
+static void create_engine_specific(struct bucket_engine *e,
+                                   const void *cookie) {
+    engine_specific_t *es;
+    es = e->upstream_server->cookie->get_engine_specific(cookie);
+    assert(es == NULL);
+    es = calloc(1, sizeof(engine_specific_t));
+    assert(es);
+    e->upstream_server->cookie->store_engine_specific(cookie, es);
+}
+
+/**
  * Set the engine handle for a cookie (create if it doesn't exist)
  */
 static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
                                                   const void *cookie,
                                                   proxied_engine_handle_t *peh) {
-    engine_specific_t *es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
-    if (!es) {
-        es = calloc(1, sizeof(engine_specific_t));
-        assert(es);
-        struct bucket_engine *e = (struct bucket_engine*)h;
-        e->upstream_server->cookie->store_engine_specific(cookie, es);
-    }
+    (void)h;
+    engine_specific_t *es;
+    es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
+    assert(es);
 
     proxied_engine_handle_t *old = es->peh;
     // In with the new
@@ -1090,9 +1096,6 @@ static void handle_disconnect(const void *cookie,
  * Callback from the memcached core for a new connection. Associate
  * it with the default bucket (if it exists) and create an engine
  * specific structure.
- * @todo create a new method to create the engine specific data
- *       structure and call it from here. (then we can nuke the test in
- *       set engine_specific)
  *
  * @param cookie the cookie representing the connection
  * @param type The kind of event (should be ON_CONNECT)
@@ -1127,7 +1130,7 @@ static void handle_connect(const void *cookie,
         }
     }
 
-    assert(bucket_engine.upstream_server->cookie->get_engine_specific(cookie) == NULL);
+    create_engine_specific(e, cookie);
     set_engine_handle((ENGINE_HANDLE*)e, cookie, peh);
     release_handle(peh);
 }
