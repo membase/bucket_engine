@@ -1860,7 +1860,6 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
     set_engine_handle(handle, cookie, proxied);
     release_handle(proxied);
 
-    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
     if (proxied) {
         response(NULL, 0, NULL, 0, NULL, 0, 0,
                  PROTOCOL_BINARY_RESPONSE_SUCCESS, 0, cookie);
@@ -1870,7 +1869,7 @@ static ENGINE_ERROR_CODE handle_select_bucket(ENGINE_HANDLE* handle,
                  PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0, cookie);
     }
 
-    return rv;
+    return ENGINE_SUCCESS;
 }
 
 static inline bool is_admin_command(uint8_t opcode) {
