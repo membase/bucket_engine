@@ -1506,6 +1506,7 @@ static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
  */
 static void release_engine_handle(proxied_engine_handle_t *engine) {
     must_lock(&engine->lock);
+    assert(engine->clients > 0);
     engine->clients--;
     maybe_start_engine_shutdown_LOCKED(engine);
     must_unlock(&engine->lock);
