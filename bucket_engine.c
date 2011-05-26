@@ -1748,28 +1748,18 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
  * Implementation of the "get_stats_struct" function in the engine
  * specification. Look up the correct engine and and verify it's
  * state.
- *
- * @todo replace get_engine with a call to get the proxied handle..
- * @todo verify that the logic handles multiple calls to this for a
- *       bucket in the wrong state
  */
 static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
                                      const void* cookie)
 {
-    struct bucket_engine *e = (struct bucket_engine*)handle;
-    void *rv = NULL;
-    engine_specific_t *es;
-
-    es = e->upstream_server->cookie->get_engine_specific(cookie);
-    if (es != NULL && es->peh != NULL) {
-        proxied_engine_handle_t *peh = es->peh;
-        must_lock(&peh->lock);
-        if (peh->state == STATE_RUNNING) {
-            rv = peh->stats;
-        }
-        must_unlock(&peh->lock);
+    void *ret = NULL;
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    if (peh) {
+        ret = peh->stats;
+        release_engine_handle(peh);
     }
-    return rv;
+
+    return ret;
 }
 
 /**
