@@ -914,22 +914,6 @@ static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
 }
 
 /**
- * Helper function used to get the engine structure for a cookie.
- */
-static inline proxied_engine_t *get_engine(ENGINE_HANDLE *h,
-                                           const void *cookie) {
-    proxied_engine_handle_t *peh = get_engine_handle(h, cookie);
-    return peh ? &peh->pe : NULL;
-}
-
-/**
- * Get the proxied engine handle for the proxied engine
- */
-static proxied_engine_handle_t *get_proxied_handle(proxied_engine_t *e) {
-    return (proxied_engine_handle_t *)(((char *)e) - offsetof(proxied_engine_handle_t, pe));
-}
-
-/**
  * Helper function to convert an ENGINE_HANDLE* to a bucket engine pointer
  * without a cast
  */
@@ -1528,8 +1512,6 @@ static void release_engine_handle(proxied_engine_handle_t *engine) {
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const void* cookie,
@@ -1539,12 +1521,13 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
                                               const size_t nbytes,
                                               const int flags,
                                               const rel_time_t exptime) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh != NULL) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->allocate(e->v0, cookie, itm, key,
-                              nkey, nbytes, flags, exptime);
-        release_engine_handle(get_proxied_handle(e));
+        ret = peh->pe.v1->allocate(peh->pe.v0, cookie, itm, key,
+                                   nkey, nbytes, flags, exptime);
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1556,8 +1539,6 @@ static ENGINE_ERROR_CODE bucket_item_allocate(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
@@ -1565,11 +1546,11 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const size_t nkey,
                                             uint64_t cas,
                                             uint16_t vbucket) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->remove(e->v0, cookie, key, nkey, cas, vbucket);
-        release_engine_handle(get_proxied_handle(e));
+        ret = peh->pe.v1->remove(peh->pe.v0, cookie, key, nkey, cas, vbucket);
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1600,8 +1581,6 @@ static void bucket_item_release(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* cookie,
@@ -1609,11 +1588,11 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
                                     const void* key,
                                     const int nkey,
                                     uint16_t vbucket) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->get(e->v0, cookie, itm, key, nkey, vbucket);
-        release_engine_handle(get_proxied_handle(e));
+        ret = peh->pe.v1->get(peh->pe.v0, cookie, itm, key, nkey, vbucket);
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1665,8 +1644,6 @@ static void bucket_list_free(struct bucket_list *blist) {
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_aggregate_stats(ENGINE_HANDLE* handle,
                                                 const void* cookie,
@@ -1731,8 +1708,6 @@ static ENGINE_ERROR_CODE get_bucket_stats(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
                                           const void* cookie,
@@ -1746,11 +1721,10 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     }
 
     ENGINE_ERROR_CODE rc = ENGINE_DISCONNECT;
-    proxied_engine_t *e = get_engine(handle, cookie);
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
 
-    if (e) {
-        rc = e->v1->get_stats(e->v0, cookie, stat_key, nkey, add_stat);
-        proxied_engine_handle_t *peh = get_proxied_handle(e);
+    if (peh) {
+        rc = peh->pe.v1->get_stats(peh->pe.v0, cookie, stat_key, nkey, add_stat);
         if (nkey == 0) {
             char statval[20];
             snprintf(statval, sizeof(statval), "%d", peh->refcount - 1);
@@ -1798,8 +1772,6 @@ static void *bucket_get_stats_struct(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       const void *cookie,
@@ -1807,11 +1779,11 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
                                       uint64_t *cas,
                                       ENGINE_STORE_OPERATION operation,
                                       uint16_t vbucket) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->store(e->v0, cookie, itm, cas, operation, vbucket);
-        release_engine_handle(get_proxied_handle(e));
+        ret = peh->pe.v1->store(peh->pe.v0, cookie, itm, cas, operation, vbucket);
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1823,8 +1795,6 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            const void* cookie,
@@ -1838,13 +1808,13 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
                                            uint64_t *cas,
                                            uint64_t *result,
                                            uint16_t vbucket) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->arithmetic(e->v0, cookie, key, nkey,
+        ret = peh->pe.v1->arithmetic(peh->pe.v0, cookie, key, nkey,
                                 increment, create, delta, initial,
                                 exptime, cas, result, vbucket);
-        release_engine_handle(get_proxied_handle(e));
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1856,16 +1826,14 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
  * specification. Look up the correct engine and call into the
  * underlying engine if the underlying engine is "running". Disconnect
  * the caller if the engine isn't "running" anymore.
- *
- * @todo replace get_engine with a call to get the proxied handle..
  */
 static ENGINE_ERROR_CODE bucket_flush(ENGINE_HANDLE* handle,
                                       const void* cookie, time_t when) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->flush(e->v0, cookie, when);
-        release_engine_handle(get_proxied_handle(e));
+        ret = peh->pe.v1->flush(peh->pe.v0, cookie, when);
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1943,14 +1911,14 @@ static ENGINE_ERROR_CODE bucket_tap_notify(ENGINE_HANDLE* handle,
                                            const void *data,
                                            size_t ndata,
                                            uint16_t vbucket) {
-    proxied_engine_t *e = get_engine(handle, cookie);
-    if (e) {
+    proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+    if (peh) {
         ENGINE_ERROR_CODE ret;
-        ret = e->v1->tap_notify(e->v0, cookie, engine_specific,
+        ret = peh->pe.v1->tap_notify(peh->pe.v0, cookie, engine_specific,
                                 nengine, ttl, tap_flags, tap_event, tap_seqno,
                                 key, nkey, flags, exptime, cas, data, ndata,
                                 vbucket);
-        release_engine_handle(get_proxied_handle(e));
+        release_engine_handle(peh);
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -2414,10 +2382,11 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
             }
         }
     } else {
-        proxied_engine_t *e = get_engine(handle, cookie);
-        if (e) {
-            rv = e->v1->unknown_command(e->v0, cookie, request, response);
-            release_engine_handle(get_proxied_handle(e));
+        proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
+        if (peh) {
+            rv = peh->pe.v1->unknown_command(peh->pe.v0, cookie, request,
+                                             response);
+            release_engine_handle(peh);
         } else {
             rv = ENGINE_DISCONNECT;
         }
