@@ -832,7 +832,11 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
 
     proxied_engine_handle_t *peh = es->peh;
     if (!peh) {
-        return e->default_engine.pe.v0 ? &e->default_engine : NULL;
+        if (e->default_engine.pe.v0) {
+            peh = &e->default_engine;
+        } else {
+            return NULL;
+        }
     }
 
     must_lock(&peh->lock);
