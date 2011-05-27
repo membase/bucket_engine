@@ -876,7 +876,7 @@ static proxied_engine_handle_t *try_get_engine_handle(ENGINE_HANDLE *h,
     }
     must_unlock(&peh->lock);
 
-    return peh;
+    return ret;
 }
 
 /**
