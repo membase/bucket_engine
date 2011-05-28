@@ -2195,9 +2195,22 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
                 /* now drop main ref */
                 release_handle_locked(peh);
             }
-            must_unlock(&peh->lock);
+
+            // If we're deleting the bucket we're connected to we need
+            // to disconnect from the bucket in order to avoid trying
+            // to grab it after it is released (since we're dropping)
+            // the reference
+            engine_specific_t *es;
+            es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
+            assert(es);
+            if (es->peh == peh) {
+                es->peh = NULL;
+            }
+
             // and drop this reference
-            release_handle(peh);
+            release_handle_locked(peh);
+
+            must_unlock(&peh->lock);
         }
 
         if (found) {
