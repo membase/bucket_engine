@@ -23,6 +23,7 @@
 /config/missing
 /config/mkinstalldirs
 /config/plugin.ac
+/config.cache
 /config.h
 /config.h.in
 /config.log
