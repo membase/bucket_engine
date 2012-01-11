@@ -19,7 +19,6 @@ OBJDIR = .libs .libs/win32
 BINARIES= .libs/bucket_engine.so
 LIB=$(LOCALLIB) -L${MEMCACHED}/lib
 INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I. $(LOCALINC)
-GENHASH= ${MEMCACHED}/.libs/utilities/genhash.o
 GENFILES=.libs/config_version.h
 CPPFLAGS= -g -O2 ${INCLUDE} -Wall
 
@@ -31,11 +30,13 @@ CFLAGS = -std=gnu99 -DNDEBUG -g \
 
 BUCKET_ENGINE_SRC = \
 		bucket_engine.c \
+		genhash.c \
+		topkeys.c \
 		win32/dlfcn.c
 BUCKET_ENGINE_OBJS = ${BUCKET_ENGINE_SRC:%.c=.libs/%.o}
 
 .libs/bucket_engine.so: ${OBJDIR} ${GENFILES} $(BUCKET_ENGINE_OBJS)
-	${LINK.cc} -o $@ -shared ${BUCKET_ENGINE_OBJS} ${GENHASH} \
+	${LINK.cc} -o $@ -shared ${BUCKET_ENGINE_OBJS} \
                   ${LIB} -lpthread -lws2_32
 
 .libs/config_version.h:
