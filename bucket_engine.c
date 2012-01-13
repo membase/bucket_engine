@@ -42,7 +42,7 @@ typedef struct proxied_engine_handle {
     const char          *name;
     size_t               name_len;
     proxied_engine_t     pe;
-    struct thread_stats *stats;
+    void                *stats;
     topkeys_t           *topkeys;
     TAP_ITERATOR         tap_iterator;
     bool                 tap_iterator_disabled;
