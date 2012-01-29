@@ -1,0 +1,41 @@
+#+TITLE:     Bucket Engine Parameters
+#+AUTHOR:    Dustin Sallings
+#+EMAIL:     dustin@spy.net
+#+DATE:      2010-05-05 Wed
+#+DESCRIPTION:
+#+LANGUAGE:  en
+#+OPTIONS:   H:3 num:t toc:t \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+OPTIONS:   TeX:t LaTeX:nil skip:nil d:nil todo:t pri:nil tags:not-in-toc
+#+INFOJS_OPT: view:nil toc:nil ltoc:t mouse:underline buttons:0 path:http://orgmode.org/org-info.js
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport
+
+* Configuring the Bucket Engine
+
+Engine parameters may be specified using the =-e= option to
+memcached.  These parameters control various aspects of the behavior
+of the bucket engine.
+
+For example, if you would like the administrative user for this bucket to
+be "admin" and you would like to name your default bucket to be "default",
+you would run memcached like this:
+
+: memcached -E bucket-engine.so -e 'admin=admin;default_bucket_name=default'
+
+* Parameters for the Bucket Engine
+
+| key                    | type   | descr                                      |
+|------------------------+--------+--------------------------------------------|
+| admin                  | string | The name of the bucket administrator. Used |
+|                        |        | for authentication. Null for no            |
+|                        |        | authentication. (Default: Null)            |
+| auto_create            | bool   | Whether or not to automatically create the |
+|                        |        | default bucket on startup.                 |
+| config_file            |        |                                            |
+| default                | bool   | Whether or not this bucket contains a      |
+|                        |        | default bucket.                            |
+| default_bucket_config  | string | The config for the default bucket          |
+| default_bucket_name    | string | The name of the default bucket.            |
+| engine                 | string | The path to the memcached engine.          |
+|------------------------+--------+--------------------------------------------|
+
