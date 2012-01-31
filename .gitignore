@@ -9,6 +9,7 @@
 *.pyc
 *.tcov
 *~
+.DS_Store
 .deps
 /.libs/
 /INSTALL
