@@ -35,7 +35,11 @@ void* dlsym(void* handle, const char* symbol) {
 int dlclose(void* handle) {
     // dlclose returns zero on success.
     // FreeLibrary returns nonzero on success.
-    return FreeLibrary(handle) != 0;
+
+    // There are possible race conditions when freeing loaded ep-engine library.
+    // It will cause memory leaking. But who cares?
+    //return FreeLibrary(handle) != 0;
+    return true;
 }
 
 static char dlerror_buf[200];
