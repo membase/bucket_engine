@@ -426,7 +426,10 @@ static void store(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
     assert(rv == ENGINE_SUCCESS);
 
     item_info info = { .nvalue = 1 };
-    h1->get_item_info(h, cookie, itm, &info);
+    assert(h1->get_item_info(h, cookie, itm, &info));
+    assert(info.nvalue == 1);
+    assert(info.value[0].iov_base);
+    assert(value);
 
     memcpy((char*)info.value[0].iov_base, value, strlen(value));
 
@@ -1432,6 +1435,47 @@ static enum test_result run_test(struct test test) {
     return ret;
 }
 
+struct warmer_arg {
+    union {
+        ENGINE_HANDLE *h;
+        ENGINE_HANDLE_V1 *h1;
+    } handles;
+    int tid;
+};
+
+static void *bench_warmer(void *arg) {
+    struct warmer_arg *wa = arg;
+    char key[32];
+    snprintf(key, sizeof(key), "k%d", wa->tid);
+    const void *cookie = mk_conn("bench", NULL);
+
+    for (int i = 0; i < 10000000; i++) {
+        item *itm = NULL;
+        store(wa->handles.h, wa->handles.h1, cookie, key, "v", &itm);
+        assert(itm);
+    }
+}
+
+static void runBench() {
+    ENGINE_HANDLE_V1 *h = start_your_engines(DEFAULT_CONFIG_AC);
+
+    const int num_workers = 4;
+    pthread_t workers[num_workers];
+    struct warmer_arg args[num_workers];
+
+    for (int i = 0; i < num_workers; i++) {
+        args[i].handles.h1 = h;
+        args[i].tid = i;
+        int rc = pthread_create(&workers[i], NULL, bench_warmer, &args[i]);
+        assert(rc == 0);
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        int rc = pthread_join(workers[i], NULL);
+        assert(rc == 0);
+    }
+}
+
 int main(int argc, char **argv) {
     int i = 0;
     int rc = 0;
@@ -1494,6 +1538,10 @@ int main(int argc, char **argv) {
         printf("Running %s... ", tests[i].name);
         fflush(stdout);
         rc += report_test(run_test(tests[i]));
+    }
+
+    if (getenv("BUCKET_ENGINE_BENCH") != NULL) {
+        runBench();
     }
 
     return rc;
