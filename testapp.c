@@ -1457,14 +1457,22 @@ static void *bench_warmer(void *arg) {
 }
 
 static void runBench() {
-    ENGINE_HANDLE_V1 *h = start_your_engines(DEFAULT_CONFIG_AC);
+    ENGINE_HANDLE_V1 *h1 = start_your_engines(DEFAULT_CONFIG);
+    ENGINE_HANDLE *h = (ENGINE_HANDLE*)h1;
+    const void *adm_cookie = mk_conn("admin", NULL);
+    void *pkt = create_create_bucket_pkt("bench", ENGINE_PATH, "");
+    ENGINE_ERROR_CODE rv = h1->unknown_command(h, adm_cookie, pkt,
+                                               add_response);
+    free(pkt);
+    assert(rv == ENGINE_SUCCESS);
+    assert(last_status == 0);
 
     const int num_workers = 4;
     pthread_t workers[num_workers];
     struct warmer_arg args[num_workers];
 
     for (int i = 0; i < num_workers; i++) {
-        args[i].handles.h1 = h;
+        args[i].handles.h = h;
         args[i].tid = i;
         int rc = pthread_create(&workers[i], NULL, bench_warmer, &args[i]);
         assert(rc == 0);

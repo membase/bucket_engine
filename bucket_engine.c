@@ -25,6 +25,10 @@
 static rel_time_t (*get_current_time)(void);
 static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
+#define ATOMIC_INCR(i) __sync_add_and_fetch(i, 1)
+#define ATOMIC_DECR(i) __sync_sub_and_fetch(i, 1)
+#define ATOMIC_CAS(ptr, oldval, newval) __sync_bool_compare_and_swap(ptr, oldval, newval)
+
 typedef union proxied_engine {
     ENGINE_HANDLE    *v0;
     ENGINE_HANDLE_V1 *v1;
@@ -33,7 +37,6 @@ typedef union proxied_engine {
 typedef enum {
     STATE_NULL,
     STATE_RUNNING,
-    STATE_STOP_REQUESTED,
     STATE_STOPPING,
     STATE_STOPPED
 } bucket_state_t;
@@ -52,11 +55,7 @@ typedef struct proxied_engine_handle {
     bool                 force_shutdown;
     EVENT_CALLBACK       cb;
     const void          *cb_data;
-    pthread_mutex_t      lock; /* guards everything below */
-    pthread_cond_t       cond; /* Condition variable the shutdown
-                                * thread will wait for the refcount
-                                * to become zero for */
-    int                  refcount; /* count of connections + 1 for
+    volatile int         refcount; /* count of connections + 1 for
                                     * hashtable reference. Handle
                                     * itself can be freed when this
                                     * drops to zero. This can only
@@ -64,7 +63,7 @@ typedef struct proxied_engine_handle {
                                     * (but can happen later because
                                     * some connection can hold
                                     * pointer longer) */
-    int clients; /* # of clients currently calling functions in the engine */
+    volatile int clients; /* # of clients currently calling functions in the engine */
     const void *cookie;
     void *dlhandle;
     volatile bucket_state_t state;
@@ -107,7 +106,6 @@ struct bucket_engine {
     char *default_bucket_config;
     proxied_engine_handle_t default_engine;
     pthread_mutex_t engines_mutex;
-    pthread_mutex_t dlopen_mutex;
     genhash_t *engines;
     GET_SERVER_API get_server_api;
     SERVER_HANDLE_V1 server;
@@ -257,7 +255,7 @@ static void free_engine_handle(proxied_engine_handle_t *);
 
 static bool list_buckets(struct bucket_engine *e, struct bucket_list **blist);
 static void bucket_list_free(struct bucket_list *blist);
-static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e);
+static void maybe_start_engine_shutdown(proxied_engine_handle_t *e);
 
 
 /**
@@ -377,7 +375,6 @@ static const char * bucket_state_name(bucket_state_t s) {
     switch(s) {
     case STATE_NULL: rv = "NULL"; break;
     case STATE_RUNNING: rv = "running"; break;
-    case STATE_STOP_REQUESTED : rv = "stop requested"; break;
     case STATE_STOPPING: rv = "stopping"; break;
     case STATE_STOPPED: rv = "stopped"; break;
     }
@@ -589,31 +586,6 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
 }
 
 /**
- * Release the reference to the proxied enine handle. Releasing the
- * engine handle may cause the shutdown of an engine to start (if this
- * was the last connection returning from a call inside the engine).
- * We should also notify the bucket shutdown thread if this was the
- * last reference to the bucket and the shutdown thread is waiting
- * for the cookies to release the engine before its memory may be
- * removed.
- */
-static void release_handle_locked(proxied_engine_handle_t *peh) {
-    assert(peh->refcount > 0);
-    peh->refcount--;
-    maybe_start_engine_shutdown_LOCKED(peh);
-
-    if (peh->refcount == 0 && peh->state == STATE_STOPPED) {
-        /*
-        ** This was the last reference to the engine handle and
-        ** the shutdown thread is currently waiting for us..
-        ** Notify the thread and let it clean up the rest of the
-        ** resources
-        */
-        pthread_cond_signal(&peh->cond);
-    }
-}
-
-/**
  * Grab the engine handle mutex and release the proxied engine handle.
  * The function currently allows you to call it with a NULL pointer,
  * but that should be replaced (we should have better control of if we
@@ -624,9 +596,10 @@ static void release_handle(proxied_engine_handle_t *peh) {
         return;
     }
 
-    must_lock(&peh->lock);
-    release_handle_locked(peh);
-    must_unlock(&peh->lock);
+    int count = ATOMIC_DECR(&peh->refcount);
+    if (peh->clients == 0 && peh->state == STATE_STOPPING) {
+        maybe_start_engine_shutdown(peh);
+    }
 }
 
 /**
@@ -647,13 +620,11 @@ static proxied_engine_handle_t *find_bucket_inner(const char *name) {
 static proxied_engine_handle_t* retain_handle(proxied_engine_handle_t *peh) {
     proxied_engine_handle_t *rv = NULL;
     if (peh) {
-        must_lock(&peh->lock);
         if (peh->state == STATE_RUNNING) {
-            ++peh->refcount;
-            assert(peh->refcount > 0);
+            int count = ATOMIC_INCR(&peh->refcount);
+            assert(count > 0);
             rv = peh;
         }
-        must_unlock(&peh->lock);
     }
     return rv;
 }
@@ -709,16 +680,6 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
         peh->tap_iterator_disabled = true;
     }
 
-    if (pthread_mutex_init(&peh->lock, bucket_engine.mutexattr) != 0) {
-        release_memory((void*)peh->name, peh->name_len);
-        return ENGINE_FAILED;
-    }
-
-    if (pthread_cond_init(&peh->cond, NULL) != 0) {
-        pthread_mutex_destroy(&peh->lock);
-        release_memory((void*)peh->name, peh->name_len);
-        return ENGINE_FAILED;
-    }
     peh->state = STATE_RUNNING;
     return ENGINE_SUCCESS;
 }
@@ -729,7 +690,6 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
  * proxied engine handle itself...
  */
 static void uninit_engine_handle(proxied_engine_handle_t *peh) {
-    pthread_mutex_destroy(&peh->lock);
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
     if (peh->topkeys != NULL) {
         topkeys_free(peh->topkeys);
@@ -753,12 +713,12 @@ static void free_engine_handle(proxied_engine_handle_t *peh) {
  * Creates bucket and places it's handle into *e_out. NOTE: that
  * caller is responsible for calling release_handle on that handle
  */
-static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
-                                       const char *bucket_name,
-                                       const char *path,
-                                       const char *config,
-                                       proxied_engine_handle_t **e_out,
-                                       char *msg, size_t msglen) {
+static ENGINE_ERROR_CODE create_bucket_UNLOCKED(struct bucket_engine *e,
+                                                const char *bucket_name,
+                                                const char *path,
+                                                const char *config,
+                                                proxied_engine_handle_t **e_out,
+                                                char *msg, size_t msglen) {
 
     ENGINE_ERROR_CODE rv;
 
@@ -778,9 +738,7 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
 
     rv = ENGINE_FAILED;
 
-    must_lock(&bucket_engine.dlopen_mutex);
     peh->pe.v0 = load_engine(&peh->dlhandle, path);
-    must_unlock(&bucket_engine.dlopen_mutex);
 
     if (!peh->pe.v0) {
         free_engine_handle(peh);
@@ -789,8 +747,6 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         }
         return rv;
     }
-
-    lock_engines();
 
     proxied_engine_handle_t *tmppeh = find_bucket_inner(bucket_name);
     if (tmppeh == NULL) {
@@ -818,8 +774,6 @@ static ENGINE_ERROR_CODE create_bucket(struct bucket_engine *e,
         peh->pe.v1->destroy(peh->pe.v0, true);
         rv = ENGINE_KEY_EEXISTS;
     }
-
-    unlock_engines();
 
     if (rv == ENGINE_SUCCESS) {
         if (e_out) {
@@ -856,18 +810,16 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
         }
     }
 
-    must_lock(&peh->lock);
     if (peh->state != STATE_RUNNING) {
         if (es->reserved == 0) {
             e->upstream_server->cookie->store_engine_specific(cookie, NULL);
             release_memory(es, sizeof(*es));
         }
-        must_unlock(&peh->lock);
         release_handle(peh);
         peh = NULL;
     } else {
-        peh->clients++;
-        must_unlock(&peh->lock);
+        int count = ATOMIC_INCR(&peh->clients);
+        assert(count > 0);
     }
 
     return peh;
@@ -890,12 +842,11 @@ static proxied_engine_handle_t *try_get_engine_handle(ENGINE_HANDLE *h,
     proxied_engine_handle_t *peh = es->peh;
     proxied_engine_handle_t *ret = NULL;
 
-    must_lock(&peh->lock);
     if (peh->state == STATE_RUNNING) {
-        peh->clients++;
+        int count = ATOMIC_INCR(&peh->clients);
+        assert(count > 0);
         ret = peh;
     }
-    must_unlock(&peh->lock);
 
     return ret;
 }
@@ -980,9 +931,8 @@ static void* refcount_dup(const void* ob, size_t vlen) {
     (void)vlen;
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     assert(peh);
-    must_lock(&peh->lock);
-    peh->refcount++;
-    must_unlock(&peh->lock);
+    int count = ATOMIC_INCR(&peh->refcount);
+    assert(count > 0);
     return (void*)ob;
 }
 
@@ -1097,21 +1047,17 @@ static void handle_disconnect(const void *cookie,
     //       implementation may grab locks in it's cb method causing us
     //       to potentially deadlock... I don't _think_ that's the
     //       problem i'm seeing right now...
-    must_lock(&peh->lock);
     bool do_callback = peh->wants_disconnects && peh->state == STATE_RUNNING;
-    must_unlock(&peh->lock);
 
     if (do_callback) {
         peh->cb(cookie, type, event_data, peh->cb_data);
     }
 
     // Free up the engine we were using.
-    must_lock(&peh->lock);
     if (es->reserved == 0) {
         // this connection isn't reserved. We might go ahead and release
         // all resources
-        release_handle_locked(peh);
-        must_unlock(&peh->lock);
+        release_handle(peh);
         // Release all the memory and clear the cookie data upstream.
         release_memory(es, sizeof(*es));
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
@@ -1119,7 +1065,6 @@ static void handle_disconnect(const void *cookie,
         // This connection is reserved. Remember that until the downstream
         // decides to release the reference...
         es->notified = true;
-        must_unlock(&peh->lock);
     }
 }
 
@@ -1146,9 +1091,11 @@ static void handle_connect(const void *cookie,
         // Assign a default named bucket (if there is one).
         peh = find_bucket(e->default_bucket_name);
         if (!peh && e->auto_create) {
-            create_bucket(e, e->default_bucket_name,
-                          e->default_engine_path,
-                          e->default_bucket_config, &peh, NULL, 0);
+            lock_engines();
+            create_bucket_UNLOCKED(e, e->default_bucket_name,
+                                   e->default_engine_path,
+                                   e->default_bucket_config, &peh, NULL, 0);
+            unlock_engines();
         }
     } else {
         // Assign the default bucket (if there is one).
@@ -1186,8 +1133,10 @@ static void handle_auth(const void *cookie,
     const auth_data_t *auth_data = (const auth_data_t*)event_data;
     proxied_engine_handle_t *peh = find_bucket(auth_data->username);
     if (!peh && e->auto_create) {
-        create_bucket(e, auth_data->username, e->default_engine_path,
-                      auth_data->config ? auth_data->config : "", &peh, NULL, 0);
+        lock_engines();
+        create_bucket_UNLOCKED(e, auth_data->username, e->default_engine_path,
+                               auth_data->config ? auth_data->config : "", &peh, NULL, 0);
+        unlock_engines();
     }
     set_engine_handle((ENGINE_HANDLE*)e, cookie, peh);
     release_handle(peh);
@@ -1257,12 +1206,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     if (pthread_mutex_init(&se->engines_mutex, bucket_engine.mutexattr) != 0) {
         logger->log(EXTENSION_LOG_WARNING, NULL,
                     "Error initializing mutex for bucket engine.\n");
-        return ENGINE_FAILED;
-    }
-
-    if (pthread_mutex_init(&se->dlopen_mutex, bucket_engine.mutexattr) != 0) {
-        logger->log(EXTENSION_LOG_WARNING, NULL,
-                    "Error initializing mutex for bucket engine dlopen.\n");
         return ENGINE_FAILED;
     }
 
@@ -1377,7 +1320,6 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
     free(se->default_bucket_config);
     se->default_bucket_config = NULL;
     pthread_mutex_destroy(&se->engines_mutex);
-    pthread_mutex_destroy(&se->dlopen_mutex);
     se->initialized = false;
 }
 
@@ -1395,6 +1337,7 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
  */
 static void *engine_shutdown_thread(void *arg) {
     bool skip;
+    // XXX:  Move state from STOPPED -> NULL.  This is an unbucket.
     must_lock(&bucket_engine.shutdown.mutex);
     skip = bucket_engine.shutdown.in_progress;
     if (!skip) {
@@ -1412,10 +1355,8 @@ static void *engine_shutdown_thread(void *arg) {
                 "Started thread to shut down \"%s\"\n", peh->name);
 
     // Sanity check
-    must_lock(&peh->lock);
-    assert(peh->state == STATE_STOPPING);
+    assert(peh->state == STATE_STOPPED);
     assert(peh->clients == 0);
-    must_unlock(&peh->lock);
 
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Destroy engine \"%s\"\n", peh->name);
@@ -1423,9 +1364,7 @@ static void *engine_shutdown_thread(void *arg) {
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Engine \"%s\" destroyed\n", peh->name);
 
-    must_lock(&peh->lock);
     peh->pe.v1 = NULL;
-    must_unlock(&peh->lock);
 
     // Unlink it from the engine table so that others may create
     // it while we're waiting for the remaining clients to disconnect
@@ -1439,8 +1378,6 @@ static void *engine_shutdown_thread(void *arg) {
                         peh->name, peh->name_len) == NULL);
     unlock_engines();
 
-    must_lock(&peh->lock);
-    peh->state = STATE_STOPPED;
     if (peh->cookie != NULL) {
         logger->log(EXTENSION_LOG_INFO, NULL,
                     "Notify %p that \"%s\" is deleted", peh->cookie, peh->name);
@@ -1457,29 +1394,15 @@ static void *engine_shutdown_thread(void *arg) {
         logger->log(EXTENSION_LOG_INFO, NULL,
                     "There are %d references to \"%s\".. wait 1 sec\n",
                     peh->refcount, peh->name);
-        pthread_cond_timedwait(&peh->cond, &peh->lock, &ts);
+
+        // XXX:  Should probably actually delay a bit.
 
         if (peh->refcount > 0) {
-            /*
-             * Unlock the current engine to avoid holding multiple locks
-             * while checking the global shutdown mutex (that may lead
-             * to deadlocks...)
-             */
-            must_unlock(&peh->lock);
-
             must_lock(&bucket_engine.shutdown.mutex);
             terminate = bucket_engine.shutdown.in_progress;
             must_unlock(&bucket_engine.shutdown.mutex);
-
-            must_lock(&peh->lock);
         }
     }
-    must_unlock(&peh->lock);
-
-    // Acquire the locks for this engine one more time to ensure
-    // that no one got a reference to the object
-    must_lock(&peh->lock);
-    must_unlock(&peh->lock);
 
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Release all resources for engine \"%s\"\n", peh->name);
@@ -1502,14 +1425,9 @@ static void *engine_shutdown_thread(void *arg) {
  * critera for starting shutdown is that no clients are currently calling
  * into the engine, and that someone requested shutdown of that engine.
  */
-static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
-    if (e->clients == 0 && e->state == STATE_STOP_REQUESTED) {
-        // There are no client threads calling into function in the engine
-        // anymore, and someone requested this engine to stop.
-        // Change the state to STATE_STOPPING to avoid multiple threads
-        // to start stop the engine...
-        e->state = STATE_STOPPING;
-
+static void maybe_start_engine_shutdown(proxied_engine_handle_t *e) {
+    lock_engines();
+    if (e->clients == 0 && ATOMIC_CAS(&e->state, STATE_STOPPING, STATE_STOPPED)) {
         // Spin off a new thread to shut down the engine..
         pthread_attr_t attr;
         pthread_t tid;
@@ -1522,7 +1440,11 @@ static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
             abort();
         }
         pthread_attr_destroy(&attr);
+    } else {
+        printf("Not starting engine shutdown thread: %d clients, state=%s",
+               e->clients, bucket_state_name(e->state));
     }
+    unlock_engines();
 }
 
 /**
@@ -1533,11 +1455,11 @@ static void maybe_start_engine_shutdown_LOCKED(proxied_engine_handle_t *e) {
  * @param engine the proxied engine
  */
 static void release_engine_handle(proxied_engine_handle_t *engine) {
-    must_lock(&engine->lock);
     assert(engine->clients > 0);
-    engine->clients--;
-    maybe_start_engine_shutdown_LOCKED(engine);
-    must_unlock(&engine->lock);
+    int count = ATOMIC_DECR(&engine->clients);
+    if (count == 0 && engine->state == STATE_STOPPING) {
+        maybe_start_engine_shutdown(engine);
+    }
 }
 
 /**
@@ -2199,8 +2121,10 @@ static ENGINE_ERROR_CODE handle_create_bucket(ENGINE_HANDLE* handle,
     const size_t msglen = 1024;
     char msg[msglen];
     msg[0] = 0;
-    ENGINE_ERROR_CODE ret = create_bucket(e, keyz, spec, config,
-                                          NULL, msg, msglen);
+    lock_engines();
+    ENGINE_ERROR_CODE ret = create_bucket_UNLOCKED(e, keyz, spec, config,
+                                                   NULL, msg, msglen);
+    unlock_engines();
 
     protocol_binary_response_status rc;
     switch(ret) {
@@ -2277,14 +2201,13 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         proxied_engine_handle_t *peh = find_bucket(keyz);
 
         if (peh) {
-            must_lock(&peh->lock);
             if (peh->state == STATE_RUNNING) {
                 peh->cookie = cookie;
                 found = true;
-                peh->state = STATE_STOP_REQUESTED;
+                if (ATOMIC_CAS(&peh->state, STATE_RUNNING, STATE_STOPPING)) {
+                    release_handle(peh);
+                }
                 peh->force_shutdown = force;
-                /* now drop main ref */
-                release_handle_locked(peh);
             }
 
             // If we're deleting the bucket we're connected to we need
@@ -2299,9 +2222,7 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
             }
 
             // and drop this reference
-            release_handle_locked(peh);
-
-            must_unlock(&peh->lock);
+            release_handle(peh);
         }
 
         if (found) {
@@ -2528,13 +2449,13 @@ static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
 
     // Lock the engine and increase the ref counters if the
     // engine is in the allowed state.
-    must_lock(&peh->lock);
     if (peh->state == STATE_RUNNING) {
-        peh->refcount++;
-        es->reserved++;
+        int count = ATOMIC_INCR(&peh->refcount);
+        assert(count > 0);
+        count = ATOMIC_INCR(&es->reserved);
+        assert(count > 0);
         ret = ENGINE_SUCCESS;
     }
-    must_unlock(&peh->lock);
 
     if (ret == ENGINE_SUCCESS) {
         // Reserve the cookie upstream as well
@@ -2573,10 +2494,10 @@ static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
     proxied_engine_handle_t *peh = es->peh;
 
     // It's time to lock the engine handle and start releasing the cookie
-    must_lock(&peh->lock);
-    --es->reserved;
 
-    if (es->notified && es->reserved == 0) {
+    int reserved = ATOMIC_DECR(&es->reserved);
+
+    if (es->notified && reserved == 0) {
         // this was the last reservation of the object, and the
         // connection was already notified as closed. Release the memory
         // and store a NULL pointer in the cookie so that we know it's released
@@ -2586,17 +2507,16 @@ static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
 
         // handle_disconnect don't decrement the refcount for reserved
         // cookies, so we need to do it here..
-        --peh->refcount;
+        ATOMIC_DECR(&peh->refcount);
     }
 
     // Sanity check that our reference counting isn't gone wild
     assert(peh->refcount > 0);
-    if (--peh->refcount == 0) {
+    if (ATOMIC_DECR(&peh->refcount) == 0) {
         // This was the last reference to the object.. We might want to
         // shut down the bucket..
-        maybe_start_engine_shutdown_LOCKED(peh);
+        maybe_start_engine_shutdown(peh);
     }
-    must_unlock(&peh->lock);
 
     if (upstream_release_cookie(cookie) != ENGINE_SUCCESS) {
         logger->log(EXTENSION_LOG_WARNING, cookie,
