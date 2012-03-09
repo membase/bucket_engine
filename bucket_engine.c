@@ -596,7 +596,7 @@ static void release_handle(proxied_engine_handle_t *peh) {
         return;
     }
 
-    int count = ATOMIC_DECR(&peh->refcount);
+    (void)ATOMIC_DECR(&peh->refcount);
     if (peh->clients == 0 && peh->state == STATE_STOPPING) {
         maybe_start_engine_shutdown(peh);
     }
@@ -1393,10 +1393,6 @@ static void *engine_shutdown_thread(void *arg) {
 
     bool terminate = false;
     while (peh->refcount > 0 && !terminate) {
-        struct timeval tp = { .tv_sec = 0 };
-        gettimeofday(&tp, NULL);
-        struct timespec ts = { .tv_sec = tp.tv_sec + 1,
-                               .tv_nsec = tp.tv_usec * 1000};
         logger->log(EXTENSION_LOG_INFO, NULL,
                     "There are %d references to \"%s\".. wait 1 sec\n",
                     peh->refcount, peh->name);

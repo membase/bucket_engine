@@ -1454,9 +1454,10 @@ static void *bench_warmer(void *arg) {
         store(wa->handles.h, wa->handles.h1, cookie, key, "v", &itm);
         assert(itm);
     }
+    return NULL;
 }
 
-static void runBench() {
+static void runBench(void) {
     ENGINE_HANDLE_V1 *h1 = start_your_engines(DEFAULT_CONFIG);
     ENGINE_HANDLE *h = (ENGINE_HANDLE*)h1;
     const void *adm_cookie = mk_conn("admin", NULL);

@@ -174,7 +174,7 @@ ENGINE_ERROR_CODE topkeys_stats(topkeys_t **tks, size_t shards,
     context.cookie = cookie;
     context.add_stat = add_stat;
     context.current_time = current_time;
-    for (int i = 0; i < shards; i++) {
+    for (size_t i = 0; i < shards; i++) {
         topkeys_t *tk = tks[i];
         assert(tk);
         must_lock(&tk->mutex);
