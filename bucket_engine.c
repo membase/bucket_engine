@@ -815,6 +815,7 @@ static ENGINE_ERROR_CODE create_bucket_UNLOCKED(struct bucket_engine *e,
 static void release_engine_handle(proxied_engine_handle_t *engine) {
     assert(engine->clients > 0);
     int count = ATOMIC_DECR(&engine->clients);
+    assert(count >= 0);
     if (count == 0 && engine->state == STATE_STOPPING) {
         maybe_start_engine_shutdown(engine);
     }
@@ -825,6 +826,32 @@ static void release_engine_handle(proxied_engine_handle_t *engine) {
  * All access to underlying engine must go through this function, because
  * we keep a counter of how many cookies that are currently calling into
  * the engine..
+ *
+ * NOTE: this cannot ever return engine handle that's in STATE_STOPPED
+ * and if returns non-null it also prevents STATE_STOPPED to be
+ * reached until release_engine_handle is called that'll decrement
+ * clients counter. Here's why:
+ *
+ * Assume it returned non-null but engine's state is
+ * STATE_STOPPED. But that means state was changed after it was
+ * observed to be STATE_RUNNING in this function. And because we never
+ * change from running to stopped it changed twice. Because STATE_RUNNING was seen after incrementing clients count here's sequence of inter-dependendent events:
+ *
+ * - we bump clients count
+ *
+ * - we observe STATE_RUNNING (and that also implies didn't
+     have STATE_STOPPED & STATE_STOPPING in past because we don't
+     change from STOPPING/STOPPED back to RUNNING)
+ *
+ * - some other thread changes STATE_RUNNING to STATE_STOPPING
+ *
+ * - somebody sets STATE_STOPPED (see
+     maybe_start_engine_shutdown). But that implies that somebody
+     first observed STATE_STOPPING and _then_ observed clients ==
+     0. Which assuming nobody decrements it without first incrementing
+     it cannot happen because our bumped clients count prevents that.
+ *
+ * Q.E.D.
  */
 static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
                                                   const void *cookie) {
@@ -842,16 +869,18 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
         }
     }
 
+    int count = ATOMIC_INCR(&peh->clients);
+    assert(count > 0);
+
     if (peh->state != STATE_RUNNING) {
+        release_engine_handle(peh);
         if (es->reserved == 0) {
             e->upstream_server->cookie->store_engine_specific(cookie, NULL);
             release_memory(es, sizeof(*es));
         }
+        /* ALK: this looks weird */
         release_handle(peh);
         peh = NULL;
-    } else {
-        int count = ATOMIC_INCR(&peh->clients);
-        assert(count > 0);
     }
 
     return peh;
@@ -872,12 +901,13 @@ static proxied_engine_handle_t *try_get_engine_handle(ENGINE_HANDLE *h,
         return NULL;
     }
     proxied_engine_handle_t *peh = es->peh;
-    proxied_engine_handle_t *ret = NULL;
+    proxied_engine_handle_t *ret = peh;
 
-    if (peh->state == STATE_RUNNING) {
-        int count = ATOMIC_INCR(&peh->clients);
-        assert(count > 0);
-        ret = peh;
+    int count = ATOMIC_INCR(&peh->clients);
+    assert(count > 0);
+    if (peh->state != STATE_RUNNING) {
+        release_engine_handle(peh);
+        ret = NULL;
     }
 
     return ret;
@@ -1388,7 +1418,10 @@ static void *engine_shutdown_thread(void *arg) {
 
     // Sanity check
     assert(peh->state == STATE_STOPPED);
-    assert(peh->clients == 0);
+    /*
+     * Note we can check for peh->clients == 0 but that's not actually
+     * right because get_engine_handle can temporarily increment it.
+     */
 
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Destroy engine \"%s\"\n", peh->name);
@@ -1452,10 +1485,15 @@ static void *engine_shutdown_thread(void *arg) {
  * Check to see if we should start shutdown of the specified engine. The
  * critera for starting shutdown is that no clients are currently calling
  * into the engine, and that someone requested shutdown of that engine.
+ *
+ * Note: we always call it with refcount protecting bucket from being
+ * deleted under us.
  */
 static void maybe_start_engine_shutdown(proxied_engine_handle_t *e) {
-    lock_engines();
-    if (e->clients == 0 && ATOMIC_CAS(&e->state, STATE_STOPPING, STATE_STOPPED)) {
+    assert(e->state == STATE_STOPPING || e->state == STATE_STOPPED || e->state == STATE_NULL);
+    /* observing 'state' before clients == 0 is _crucial_. See
+     * get_engine_handle. */
+    if (e->state == STATE_STOPPING && e->clients == 0 && ATOMIC_CAS(&e->state, STATE_STOPPING, STATE_STOPPED)) {
         // Spin off a new thread to shut down the engine..
         pthread_attr_t attr;
         pthread_t tid;
@@ -1472,7 +1510,6 @@ static void maybe_start_engine_shutdown(proxied_engine_handle_t *e) {
         printf("Not starting engine shutdown thread: %d clients, state=%s",
                e->clients, bucket_state_name(e->state));
     }
-    unlock_engines();
 }
 
 /**
