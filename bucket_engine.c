@@ -2267,11 +2267,19 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         proxied_engine_handle_t *peh = find_bucket(keyz);
 
         if (peh) {
+            /* bumped clients count protects transition from
+             * STATE_RUNNING to STATE_STOPPED while peh->cookie is not
+             * yet set. */
+            int count = ATOMIC_INCR(&peh->clients);
+            assert(count > 0);
             if (ATOMIC_CAS(&peh->state, STATE_RUNNING, STATE_STOPPING)) {
                 peh->cookie = cookie;
                 found = true;
                 peh->force_shutdown = force;
             }
+            /* it'll decrement clients and also initiate bucket
+             * shutdown when there are no active clients */
+            release_engine_handle(peh);
 
             // If we're deleting the bucket we're connected to we need
             // to disconnect from the bucket in order to avoid trying
