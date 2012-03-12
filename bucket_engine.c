@@ -899,12 +899,6 @@ static proxied_engine_handle_t *get_engine_handle(ENGINE_HANDLE *h,
 
     if (peh->state != STATE_RUNNING) {
         release_engine_handle(peh);
-        if (es->reserved == 0) {
-            e->upstream_server->cookie->store_engine_specific(cookie, NULL);
-            release_memory(es, sizeof(*es));
-        }
-        /* ALK: this looks weird */
-        release_handle(peh);
         peh = NULL;
     }
 
