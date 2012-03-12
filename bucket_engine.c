@@ -134,6 +134,16 @@ struct bucket_engine {
         int bucket_counter; /* Number of treads currently running shutdown */
         pthread_mutex_t mutex;
         pthread_cond_t cond;
+        /* this condition signals either in_progress being true or
+         * some bucket's refcount being 0.
+         *
+         * This means that under some conditions (lots of buckets
+         * recently deleted but still have connections assigned on
+         * them) we'll have a bit of thundering herd problem, where
+         * too many bucket deletion threads are woken up
+         * needlessly. But that can be improved much later when and if
+         * we actually find this to be a problem. */
+        pthread_cond_t refcount_cond;
     } shutdown;
 
     union {
@@ -303,7 +313,8 @@ struct bucket_engine bucket_engine = {
         .in_progress = false,
         .bucket_counter = 0,
         .mutex = PTHREAD_MUTEX_INITIALIZER,
-        .cond = PTHREAD_COND_INITIALIZER
+        .cond = PTHREAD_COND_INITIALIZER,
+        .refcount_cond = PTHREAD_COND_INITIALIZER
     },
     .info.engine_info = {
         .description = "Bucket engine v0.2",
@@ -609,10 +620,13 @@ static void release_handle(proxied_engine_handle_t *peh) {
         return;
     }
 
-    if (peh->clients == 0 && peh->state == STATE_STOPPING) {
-        maybe_start_engine_shutdown(peh);
+    int count = ATOMIC_DECR(&peh->refcount);
+    assert(count >= 0);
+    if (count == 0) {
+        must_lock(&bucket_engine.shutdown.mutex);
+        pthread_cond_broadcast(&bucket_engine.shutdown.refcount_cond);
+        must_unlock(&bucket_engine.shutdown.mutex);
     }
-    (void)ATOMIC_DECR(&peh->refcount);
 }
 
 /**
@@ -1016,13 +1030,11 @@ static void* refcount_dup(const void* ob, size_t vlen) {
 
 /**
  * Function used by genhash to release an object.
- * @todo investigate this..
  */
 static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     assert(peh);
-    int count = ATOMIC_DECR(&peh->refcount);
-    assert(count >= 0);
+    release_handle(peh);
     peh->state = STATE_NULL;
 }
 
@@ -1377,6 +1389,8 @@ static void bucket_destroy(ENGINE_HANDLE* handle,
 
     must_lock(&bucket_engine.shutdown.mutex);
     bucket_engine.shutdown.in_progress = true;
+    /* kick bucket deletion threads in butt broadcasting in_progress = true condition */
+    pthread_cond_broadcast(&bucket_engine.shutdown.refcount_cond);
     // Ensure that we don't race with another thread shutting down a bucket
     while (bucket_engine.shutdown.bucket_counter) {
         pthread_cond_wait(&bucket_engine.shutdown.cond,
@@ -1469,20 +1483,31 @@ static void *engine_shutdown_thread(void *arg) {
                                                                   ENGINE_SUCCESS);
     }
 
-    bool terminate = false;
-    while (peh->refcount > 0 && !terminate) {
+    /* NOTE: that even though DECR in release_handle happens without
+     * lock, engine_shutdown_thread cannot miss wakeup event. That's
+     * because broadcast happens under lock. Here's why.
+     *
+     * Suppose engine_shutdown_thread went to cond_wait sleep with
+     * refcount = 0 and was never awaken (we want to prove by
+     * contradiction that this cannot happen). But we know it have
+     * observed refcount > 0. This means concurrent release_handle
+     * decremented it after we've observed refcount value. But we know
+     * that if this happened, release_handle would go and broadcast
+     * signal. But our assumtion tells us we've missed this
+     * broadcast. But this cannot happen because nobody can do
+     * broadcast between us observing refcount value and going to
+     * sleep because we're holding mutex that broadcast takes.
+     */
+    must_lock(&bucket_engine.shutdown.mutex);
+    while (peh->refcount > 0 && !bucket_engine.shutdown.in_progress) {
         logger->log(EXTENSION_LOG_INFO, NULL,
-                    "There are %d references to \"%s\".. wait 1 sec\n",
+                    "There are %d references to \"%s\".. waiting more\n",
                     peh->refcount, peh->name);
 
-        // XXX:  Should probably actually delay a bit.
-
-        if (peh->refcount > 0) {
-            must_lock(&bucket_engine.shutdown.mutex);
-            terminate = bucket_engine.shutdown.in_progress;
-            must_unlock(&bucket_engine.shutdown.mutex);
-        }
+        pthread_cond_wait(&bucket_engine.shutdown.refcount_cond,
+                          &bucket_engine.shutdown.mutex);
     }
+    must_unlock(&bucket_engine.shutdown.mutex);
 
     logger->log(EXTENSION_LOG_INFO, NULL,
                 "Release all resources for engine \"%s\"\n", peh->name);
