@@ -2475,11 +2475,7 @@ static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
     engine_specific_t *es;
     es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
 
-    if (es == NULL) {
-        // You can't try reserve a cookie without an associated connection
-        // structure. I'm pretty sure this is an impossible code path..
-        return ENGINE_FAILED;
-    }
+    assert(es != NULL);
 
     proxied_engine_handle_t *peh = es->peh;
     if (peh == NULL) {
