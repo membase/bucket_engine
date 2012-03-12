@@ -806,6 +806,21 @@ static ENGINE_ERROR_CODE create_bucket_UNLOCKED(struct bucket_engine *e,
 }
 
 /**
+ * The client returned from the call inside the engine. If this was the
+ * last client inside the engine, and the engine is scheduled for removal
+ * it should be safe to nuke the engine :)
+ *
+ * @param engine the proxied engine
+ */
+static void release_engine_handle(proxied_engine_handle_t *engine) {
+    assert(engine->clients > 0);
+    int count = ATOMIC_DECR(&engine->clients);
+    if (count == 0 && engine->state == STATE_STOPPING) {
+        maybe_start_engine_shutdown(engine);
+    }
+}
+
+/**
  * Returns engine handle for this connection.
  * All access to underlying engine must go through this function, because
  * we keep a counter of how many cookies that are currently calling into
@@ -1458,21 +1473,6 @@ static void maybe_start_engine_shutdown(proxied_engine_handle_t *e) {
                e->clients, bucket_state_name(e->state));
     }
     unlock_engines();
-}
-
-/**
- * The client returned from the call inside the engine. If this was the
- * last client inside the engine, and the engine is scheduled for removal
- * it should be safe to nuke the engine :)
- *
- * @param engine the proxied engine
- */
-static void release_engine_handle(proxied_engine_handle_t *engine) {
-    assert(engine->clients > 0);
-    int count = ATOMIC_DECR(&engine->clients);
-    if (count == 0 && engine->state == STATE_STOPPING) {
-        maybe_start_engine_shutdown(engine);
-    }
 }
 
 /**
