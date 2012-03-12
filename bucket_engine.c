@@ -1005,6 +1005,8 @@ static void* refcount_dup(const void* ob, size_t vlen) {
 static void engine_hash_free(void* ob) {
     proxied_engine_handle_t *peh = (proxied_engine_handle_t *)ob;
     assert(peh);
+    int count = ATOMIC_DECR(&peh->refcount);
+    assert(count >= 0);
     peh->state = STATE_NULL;
 }
 
@@ -2248,12 +2250,9 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
         proxied_engine_handle_t *peh = find_bucket(keyz);
 
         if (peh) {
-            if (peh->state == STATE_RUNNING) {
+            if (ATOMIC_CAS(&peh->state, STATE_RUNNING, STATE_STOPPING)) {
                 peh->cookie = cookie;
                 found = true;
-                if (ATOMIC_CAS(&peh->state, STATE_RUNNING, STATE_STOPPING)) {
-                    release_handle(peh);
-                }
                 peh->force_shutdown = force;
             }
 
