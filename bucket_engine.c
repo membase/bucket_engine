@@ -598,10 +598,10 @@ static void release_handle(proxied_engine_handle_t *peh) {
         return;
     }
 
-    (void)ATOMIC_DECR(&peh->refcount);
     if (peh->clients == 0 && peh->state == STATE_STOPPING) {
         maybe_start_engine_shutdown(peh);
     }
+    (void)ATOMIC_DECR(&peh->refcount);
 }
 
 /**
