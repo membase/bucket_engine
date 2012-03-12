@@ -81,6 +81,8 @@ struct engine_event_handler {
 
 static struct connstruct *connstructs;
 
+static pthread_mutex_t connstructs_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static struct engine_event_handler *engine_event_handlers[MAX_ENGINE_EVENT_TYPE + 1];
 
 #define xisspace(c) isspace((unsigned char)c)
@@ -153,8 +155,10 @@ static struct connstruct *mk_conn(const char *user, const char *config) {
     rv->uname = user ? strdup(user) : NULL;
     rv->config = config ? strdup(config) : NULL;
     rv->connected = true;
+    pthread_mutex_lock(&connstructs_mutex);
     rv->next = connstructs;
     connstructs = rv;
+    pthread_mutex_unlock(&connstructs_mutex);
     perform_callbacks(ON_CONNECT, NULL, rv);
     if (rv->uname) {
         get_auth_data(rv, &ad);
@@ -164,8 +168,15 @@ static struct connstruct *mk_conn(const char *user, const char *config) {
 }
 
 static void disconnect(struct connstruct *c) {
-    c->connected = false;
-    perform_callbacks(ON_DISCONNECT, NULL, c);
+    bool old_value;
+    pthread_mutex_lock(&connstructs_mutex);
+    if ((old_value = c->connected)) {
+        c->connected = false;
+    }
+    pthread_mutex_unlock(&connstructs_mutex);
+    if (old_value) {
+        perform_callbacks(ON_DISCONNECT, NULL, c);
+    }
 }
 
 static void register_callback(ENGINE_HANDLE *eh,
@@ -1404,6 +1415,8 @@ static enum test_result run_test(struct test test) {
             /* Start the engines and go */
             ENGINE_HANDLE_V1 *h = start_your_engines(test.cfg ? test.cfg : DEFAULT_CONFIG);
             ret = test.tfun((ENGINE_HANDLE*)h, h);
+            /* we expect all threads to be dead so no need to guard
+             * concurrent connstructs access anymore */
             disconnect_all_connections(connstructs);
             destroy_event_handlers();
             connstructs = NULL;
