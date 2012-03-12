@@ -1105,16 +1105,15 @@ static void handle_disconnect(const void *cookie,
         return;
     }
 
-    // @todo this isn't really safe... we might call down into the
-    //       engine while it's deleting.. We can't keep the lock
-    //       over the callback, because ep-engine in it's current
-    //       implementation may grab locks in it's cb method causing us
-    //       to potentially deadlock... I don't _think_ that's the
-    //       problem i'm seeing right now...
-    bool do_callback = peh->wants_disconnects && peh->state == STATE_RUNNING;
+    proxied_engine_handle_t *cb_peh = try_get_engine_handle((ENGINE_HANDLE *)e, cookie);
 
+    bool do_callback = cb_peh != NULL && peh->wants_disconnects;
     if (do_callback) {
         peh->cb(cookie, type, event_data, peh->cb_data);
+    }
+
+    if (cb_peh != NULL) {
+        release_engine_handle(cb_peh);
     }
 
     // Free up the engine we were using.
