@@ -2264,10 +2264,10 @@ static ENGINE_ERROR_CODE handle_delete_bucket(ENGINE_HANDLE* handle,
             es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
             assert(es);
             if (es->peh == peh) {
-                es->peh = NULL;
+                set_engine_handle(handle, cookie, NULL);
             }
 
-            // and drop this reference
+            // and drop reference from find_bucket
             release_handle(peh);
         }
 
