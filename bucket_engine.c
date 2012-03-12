@@ -1506,9 +1506,6 @@ static void maybe_start_engine_shutdown(proxied_engine_handle_t *e) {
             abort();
         }
         pthread_attr_destroy(&attr);
-    } else {
-        printf("Not starting engine shutdown thread: %d clients, state=%s",
-               e->clients, bucket_state_name(e->state));
     }
 }
 
