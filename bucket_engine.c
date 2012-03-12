@@ -735,9 +735,18 @@ static void uninit_engine_handle(proxied_engine_handle_t *peh) {
         topkeys_free(peh->topkeys);
     }
     release_memory((void*)peh->name, peh->name_len);
-    if (peh->dlhandle) {
-        dlclose(peh->dlhandle);
-    }
+    /* Note: looks like current engine API allows engine to keep some
+     * connections reserved past destroy call return. This implies
+     * that doing dlclose is raceful and thus we should not do it.
+     *
+     * Currently we also have issue with tcmalloc integration on
+     * windows where apparently unloading ep.so is causing some
+     * troubles in tcmalloc. */
+    /*
+     * if (peh->dlhandle) {
+     *     dlclose(peh->dlhandle);
+     * }
+     */
 }
 
 /**
