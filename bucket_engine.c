@@ -50,7 +50,7 @@ typedef struct proxied_engine_handle {
     TAP_ITERATOR         tap_iterator;
     bool                 tap_iterator_disabled;
     /* ON_DISCONNECT handling */
-    bool                 wants_disconnects;
+    volatile bool        wants_disconnects;
     /* Force shutdown flag */
     bool                 force_shutdown;
     EVENT_CALLBACK       cb;
@@ -403,6 +403,8 @@ struct bucket_find_by_handle_data {
  * A callback function used by genhash_iter to locate the engine handle
  * object for a given engine.
  *
+ * Runs with engines lock held.
+ *
  * @param key not used
  * @param nkey not used
  * @param val the engine handle stored at this position in the hash
@@ -457,13 +459,13 @@ static void bucket_register_callback(ENGINE_HANDLE *eh,
     genhash_iter(bucket_engine.engines, find_bucket_by_engine, &find_data);
 
     if (find_data.peh) {
-        find_data.peh->wants_disconnects = true;
         find_data.peh->cb = cb;
         find_data.peh->cb_data = cb_data;
+        find_data.peh->wants_disconnects = true;
     } else if (bucket_engine.has_default && eh == bucket_engine.default_engine.pe.v0){
-        bucket_engine.default_engine.wants_disconnects = true;
         bucket_engine.default_engine.cb = cb;
         bucket_engine.default_engine.cb_data = cb_data;
+        bucket_engine.default_engine.wants_disconnects = true;
     }
 }
 
