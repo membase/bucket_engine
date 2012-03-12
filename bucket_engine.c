@@ -25,8 +25,9 @@
 static rel_time_t (*get_current_time)(void);
 static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
-#define ATOMIC_INCR(i) __sync_add_and_fetch(i, 1)
-#define ATOMIC_DECR(i) __sync_sub_and_fetch(i, 1)
+#define ATOMIC_ADD(i, by) __sync_add_and_fetch(i, by)
+#define ATOMIC_INCR(i) ATOMIC_ADD(i, 1)
+#define ATOMIC_DECR(i) ATOMIC_ADD(i, -1)
 #define ATOMIC_CAS(ptr, oldval, newval) __sync_bool_compare_and_swap(ptr, oldval, newval)
 
 typedef union proxied_engine {
@@ -55,19 +56,29 @@ typedef struct proxied_engine_handle {
     bool                 force_shutdown;
     EVENT_CALLBACK       cb;
     const void          *cb_data;
-    volatile int         refcount; /* count of connections + 1 for
-                                    * hashtable reference. Handle
-                                    * itself can be freed when this
-                                    * drops to zero. This can only
-                                    * happen when bucket is deleted
-                                    * (but can happen later because
-                                    * some connection can hold
-                                    * pointer longer) */
+    /* count of connections + 1 for hashtable reference + number of
+     * reserved connections for this bucket + number of temporary
+     * references created by find_bucket & frieds.
+     *
+     * count of connections is count of engine_specific instances
+     * having peh equal to this engine_handle. There's only one
+     * exception which is connections for which on_disconnect callback
+     * was called but which are kept alive by reserved > 0. For those
+     * connections we drop refcount in on_disconnect but keep peh
+     * field so that bucket_engine_release_cookie can decrement peh
+     * refcount.
+     *
+     * Handle itself can be freed when this drops to zero. This can
+     * only happen when bucket is deleted (but can happen later
+     * because some connection can hold pointer longer) */
+    volatile int         refcount;
     volatile int clients; /* # of clients currently calling functions in the engine */
     const void *cookie;
     void *dlhandle;
     volatile bucket_state_t state;
 } proxied_engine_handle_t;
+
+#define ES_CONNECTED_FLAG 0x1000
 
 /**
  * bucket_engine needs to store data specific to a given connection.
@@ -83,10 +94,10 @@ typedef struct engine_specific {
     void *engine_specific;
     /** The number of times the underlying engine tried to reserve
      * this connection */
+    /* 0x1000 is added while we think memcached connection is
+     * alive. We'll decrement it when processing ON_DISCONNECT
+     * callback. */
     int reserved;
-    /** Did we receive an ON_DISCONNECT for this connection while it
-     * was reserved? */
-    int notified;
 } engine_specific_t;
 
 static ENGINE_ERROR_CODE (*upstream_reserve_cookie)(const void *cookie);
@@ -923,6 +934,7 @@ static void create_engine_specific(struct bucket_engine *e,
     assert(es == NULL);
     es = calloc(1, sizeof(engine_specific_t));
     assert(es);
+    es->reserved = ES_CONNECTED_FLAG;
     e->upstream_server->cookie->store_engine_specific(cookie, es);
 }
 
@@ -936,6 +948,10 @@ static proxied_engine_handle_t* set_engine_handle(ENGINE_HANDLE *h,
     engine_specific_t *es;
     es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
     assert(es);
+
+    /* we cannot switch bucket for connection that's reserved. With
+     * current code at least. */
+    assert((es->reserved & ~ES_CONNECTED_FLAG) == 0);
 
     proxied_engine_handle_t *old = es->peh;
     // In with the new
@@ -1089,17 +1105,14 @@ static void handle_disconnect(const void *cookie,
     engine_specific_t *es;
 
     es = e->upstream_server->cookie->get_engine_specific(cookie);
-    if (es == NULL) {
-        // we don't have any information about this connection..
-        // just ignore it!
-        return;
-    }
+    assert(es);
 
     proxied_engine_handle_t *peh = es->peh;
     if (peh == NULL) {
         // Not attached to an engine!
         // Release the allocated memory, and clear the cookie data
         // upstream
+        assert(es->reserved == ES_CONNECTED_FLAG);
         release_memory(es, sizeof(*es));
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
         return;
@@ -1116,19 +1129,24 @@ static void handle_disconnect(const void *cookie,
         release_engine_handle(cb_peh);
     }
 
-    // Free up the engine we were using.
-    if (es->reserved == 0) {
-        // this connection isn't reserved. We might go ahead and release
-        // all resources
-        release_handle(peh);
+    /* We don't expect concurrent calls to reserve because of
+     * restriction that reserve can be only called from upcall. And
+     * memcached will not upcall this while doing upcall for something
+     * else (e.g. tap_notify or tap_itertator). */
+    /* NOTE: that concurrent release is ok */
+    int count = ATOMIC_ADD(&es->reserved, -ES_CONNECTED_FLAG);
+    if (count == 0) {
+        /* if we're last just clear this thing */
         // Release all the memory and clear the cookie data upstream.
         release_memory(es, sizeof(*es));
         e->upstream_server->cookie->store_engine_specific(cookie, NULL);
-    } else {
-        // This connection is reserved. Remember that until the downstream
-        // decides to release the reference...
-        es->notified = true;
     }
+    /* we now have one less connection holding reference to this peh.
+     *
+     * NOTE: we have es->peh still has this peh, and es->reserved now
+     * guards peh 'alive'-dness so connection's engine-specific will
+     * still not outlive peh. */
+    release_handle(peh);
 }
 
 /**
@@ -2471,7 +2489,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
  */
 static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
 {
-    ENGINE_ERROR_CODE ret = ENGINE_FAILED;
+    ENGINE_ERROR_CODE ret;
     engine_specific_t *es;
     es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
 
@@ -2488,28 +2506,27 @@ static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
         }
     }
 
-    // Lock the engine and increase the ref counters if the
-    // engine is in the allowed state.
-    if (peh->state == STATE_RUNNING) {
-        int count = ATOMIC_INCR(&peh->refcount);
-        assert(count > 0);
-        count = ATOMIC_INCR(&es->reserved);
-        assert(count > 0);
-        ret = ENGINE_SUCCESS;
+    /* This can only be reliably called form engine up-call so that
+     * it's impossible to transition to STATE_STOPPED while we're
+     * here. */
+    assert(peh->clients > 0);
+
+    if (peh->state != STATE_RUNNING) {
+        return ENGINE_FAILED;
     }
 
-    if (ret == ENGINE_SUCCESS) {
-        // Reserve the cookie upstream as well
-        ret = upstream_reserve_cookie(cookie);
-        if (ret != ENGINE_SUCCESS) {
-            logger->log(EXTENSION_LOG_WARNING, cookie,
-                        "Failed to reserve the cookie (%p) in memcached.\n"
-                        "Expect a bucket you can't close until restart...",
-                        cookie);
-        }
+    // Reserve the cookie upstream as well
+    ret = upstream_reserve_cookie(cookie);
+    if (ret != ENGINE_SUCCESS) {
+        return ret;
     }
 
-    return ret;
+    int count = ATOMIC_INCR(&peh->refcount);
+    assert(count > 0);
+    count = ATOMIC_INCR(&es->reserved);
+    assert(count > 0);
+
+    return ENGINE_SUCCESS;
 }
 
 /**
@@ -2531,33 +2548,25 @@ static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
     // the caller tries to mess with us).
     engine_specific_t *es;
     es = bucket_engine.upstream_server->cookie->get_engine_specific(cookie);
-    assert(es != NULL && es->reserved > 0 && es->peh != NULL);
+    assert(es != NULL);
+    assert((es->reserved & ~ES_CONNECTED_FLAG) > 0);
     proxied_engine_handle_t *peh = es->peh;
+    assert(peh != NULL);
 
     // It's time to lock the engine handle and start releasing the cookie
 
     int reserved = ATOMIC_DECR(&es->reserved);
 
-    if (es->notified && reserved == 0) {
+    if (reserved == 0) {
         // this was the last reservation of the object, and the
         // connection was already notified as closed. Release the memory
         // and store a NULL pointer in the cookie so that we know it's released
 
         release_memory(es, sizeof(*es));
         bucket_engine.upstream_server->cookie->store_engine_specific(cookie, NULL);
-
-        // handle_disconnect don't decrement the refcount for reserved
-        // cookies, so we need to do it here..
-        ATOMIC_DECR(&peh->refcount);
     }
 
-    // Sanity check that our reference counting isn't gone wild
-    assert(peh->refcount > 0);
-    if (ATOMIC_DECR(&peh->refcount) == 0) {
-        // This was the last reference to the object.. We might want to
-        // shut down the bucket..
-        maybe_start_engine_shutdown(peh);
-    }
+    release_handle(peh);
 
     if (upstream_release_cookie(cookie) != ENGINE_SUCCESS) {
         logger->log(EXTENSION_LOG_WARNING, cookie,
