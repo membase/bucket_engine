@@ -978,8 +978,10 @@ static int getenv_int_with_default(const char *env_var, int default_value) {
     return default_value;
 }
 
-static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
-                                                      ENGINE_HANDLE_V1 *h1) {
+static enum test_result do_test_delete_bucket_concurrent(ENGINE_HANDLE *h,
+                                                         ENGINE_HANDLE_V1 *h1,
+                                                         bool keep_one_refcount)
+{
     struct bucket_engine *bucket_engine = (struct bucket_engine *)h;
     const void *adm_cookie = mk_conn("admin", NULL);
 
@@ -995,7 +997,9 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     assert(peh);
 
     assert(peh->refcount == 1);
-    peh->refcount++;
+    if (keep_one_refcount) {
+        peh->refcount++;
+    }
 
     int n_threads = getenv_int_with_default("DELETE_BUCKET_CONCURRENT_THREADS", 17);
     if (n_threads < 1) {
@@ -1039,15 +1043,19 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
         assert(r == 0);
     }
 
-    assert(peh->refcount == 1);
-    assert(peh->state == STATE_NULL);
-    assert(bucket_engine->shutdown.bucket_counter == 1);
+    if (keep_one_refcount) {
+        assert(peh->refcount == 1);
+        assert(peh->state == STATE_NULL);
+        assert(bucket_engine->shutdown.bucket_counter == 1);
+    }
 
     pthread_mutex_lock(&bucket_engine->shutdown.mutex);
-    assert(peh->refcount == 1);
-    peh->refcount = 0;
-    assert(bucket_engine->shutdown.bucket_counter == 1);
-    pthread_cond_broadcast(&bucket_engine->shutdown.refcount_cond);
+    if (keep_one_refcount) {
+        assert(peh->refcount == 1);
+        peh->refcount = 0;
+        assert(bucket_engine->shutdown.bucket_counter == 1);
+        pthread_cond_broadcast(&bucket_engine->shutdown.refcount_cond);
+    }
     /* we cannot use shutdown.cond because it'll only be signalled
      * when in_progress is set, but we don't want to set in_progress
      * to avoid aborting normal "refcount drops to 0" loop. */
@@ -1059,9 +1067,15 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     assert(bucket_engine->shutdown.bucket_counter == 0);
     pthread_mutex_unlock(&bucket_engine->shutdown.mutex);
 
-    pthread_mutex_unlock(&notify_mutex);
+    pthread_mutex_init(&notify_mutex, 0);
 
     return SUCCESS;
+}
+
+
+static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
+                                                      ENGINE_HANDLE_V1 *h1) {
+    do_test_delete_bucket_concurrent(h, h1, true);
 }
 
 static enum test_result test_delete_bucket_concurrent_multi(ENGINE_HANDLE *h,
@@ -1072,7 +1086,7 @@ static enum test_result test_delete_bucket_concurrent_multi(ENGINE_HANDLE *h,
     }
     enum test_result rv = SUCCESS;
     while (--i >= 0) {
-        rv = test_delete_bucket_concurrent(h, h1);
+        rv = do_test_delete_bucket_concurrent(h, h1, i & 1);
         if (rv != SUCCESS) {
             break;
         }
