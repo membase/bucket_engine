@@ -837,8 +837,9 @@ static enum test_result test_admin_user(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
-static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
-                                           ENGINE_HANDLE_V1 *h1) {
+static enum test_result do_test_delete_bucket(ENGINE_HANDLE *h,
+                                              ENGINE_HANDLE_V1 *h1,
+                                              bool delete_on_same_connection) {
     const void *adm_cookie = mk_conn("admin", NULL);
     const char *key = "somekey";
     const char *value = "the value";
@@ -851,6 +852,14 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
+
+    if (delete_on_same_connection) {
+        void *pkt = create_packet(SELECT_BUCKET, "someuser", "");
+        rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+        free(pkt);
+        assert(rv == ENGINE_SUCCESS);
+        assert(last_status == 0);
+    }
 
     const void *other_cookie = mk_conn("someuser", NULL);
 
@@ -882,6 +891,16 @@ static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
     assert(rv == ENGINE_DISCONNECT);
 
     return SUCCESS;
+}
+
+static enum test_result test_delete_bucket(ENGINE_HANDLE *h,
+                                           ENGINE_HANDLE_V1 *h1) {
+    return do_test_delete_bucket(h, h1, false);
+}
+
+static enum test_result test_delete_bucket_sameconnection(ENGINE_HANDLE *h,
+                                                          ENGINE_HANDLE_V1 *h1) {
+    return do_test_delete_bucket(h, h1, true);
 }
 
 struct handle_pair {
@@ -1528,6 +1547,8 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_NO_DEF},
         {"bucket name verification", test_bucket_name_validation, NULL},
         {"delete bucket", test_delete_bucket,
+         DEFAULT_CONFIG_NO_DEF},
+        {"delete bucket (same connection)", test_delete_bucket_sameconnection,
          DEFAULT_CONFIG_NO_DEF},
         {"concurrent access delete bucket", test_delete_bucket_concurrent,
          DEFAULT_CONFIG_NO_DEF},
