@@ -20,6 +20,8 @@
 #include "memcached/engine.h"
 #include "memcached/util.h"
 
+#include "bucket_engine_internal.h"
+
 #define ENGINE_PATH ".libs/mock_engine.so"
 #define DEFAULT_CONFIG "engine=.libs/mock_engine.so;default=true;admin=admin" \
     ";auto_create=false"
@@ -912,25 +914,34 @@ static void* conc_del_bucket_thread(void *arg) {
     struct handle_pair *hp = arg;
 
     bool keepGoing = true;
-    while (keepGoing) {
+    bool have_connection = false;
+    void *cokie;
+    while (true) {
         static const char *key = "somekey";
         static size_t klen = 7;
         static size_t vlen = 9;
 
-        void *cokie = mk_conn("someuser", NULL);
+        cokie = have_connection ? cokie : mk_conn("someuser", NULL);
+        have_connection = true;
 
         item *itm;
         ENGINE_ERROR_CODE rv = hp->h1->allocate(hp->h, cokie, &itm,
                                                 key, klen,
                                                 vlen, 9258, 3600);
-        keepGoing = rv != ENGINE_DISCONNECT;
-
-        if (rv == ENGINE_SUCCESS) {
-            hp->h1->release(hp->h, cokie, itm);
+        if (rv == ENGINE_DISCONNECT) {
+            break;
         }
 
-        disconnect(cokie);
+        assert(rv == ENGINE_SUCCESS);
+
+        hp->h1->release(hp->h, cokie, itm);
+
+        if (random() % 3 == 0) {
+            have_connection = false;
+            disconnect(cokie);
+        }
     }
+    disconnect(cokie);
     return NULL;
 }
 
@@ -951,8 +962,25 @@ static enum test_result test_release(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static int getenv_int_with_default(const char *env_var, int default_value) {
+    char *val = getenv(env_var);
+    if (!val) {
+        return default_value;
+    }
+    char *ptr;
+    long lrv = (int)strtol(val, &ptr, 10);
+    if (*val && !*ptr) {
+        int rv = (int)lrv;
+        if ((long)lrv == lrv) {
+            return rv;
+        }
+    }
+    return default_value;
+}
+
 static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
                                                       ENGINE_HANDLE_V1 *h1) {
+    struct bucket_engine *bucket_engine = (struct bucket_engine *)h;
     const void *adm_cookie = mk_conn("admin", NULL);
 
     ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
@@ -963,7 +991,16 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     assert(rv == ENGINE_SUCCESS);
     assert(last_status == 0);
 
-    const int n_threads = 8;
+    proxied_engine_handle_t *peh = genhash_find(bucket_engine->engines, "someuser", strlen("someuser"));
+    assert(peh);
+
+    assert(peh->refcount == 1);
+    peh->refcount++;
+
+    int n_threads = getenv_int_with_default("DELETE_BUCKET_CONCURRENT_THREADS", 17);
+    if (n_threads < 1) {
+        n_threads = 1;
+    }
     pthread_t threads[n_threads];
     struct handle_pair hp = {.h = h, .h1 = h1};
 
@@ -986,7 +1023,7 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
     free(pkt);
     assert(rv == ENGINE_SUCCESS);
 
-    const void *other_cookie = mk_conn("someuser", NULL);
+    void *other_cookie = mk_conn("someuser", NULL);
     item *itm;
     const char* key = "testkey";
     const char* value = "testvalue";
@@ -994,6 +1031,7 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
+    disconnect(other_cookie);
 
     for (int i = 0; i < n_threads; i++) {
         void *trv = NULL;
@@ -1001,7 +1039,45 @@ static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
         assert(r == 0);
     }
 
+    assert(peh->refcount == 1);
+    assert(peh->state == STATE_NULL);
+    assert(bucket_engine->shutdown.bucket_counter == 1);
+
+    pthread_mutex_lock(&bucket_engine->shutdown.mutex);
+    assert(peh->refcount == 1);
+    peh->refcount = 0;
+    assert(bucket_engine->shutdown.bucket_counter == 1);
+    pthread_cond_broadcast(&bucket_engine->shutdown.refcount_cond);
+    /* we cannot use shutdown.cond because it'll only be signalled
+     * when in_progress is set, but we don't want to set in_progress
+     * to avoid aborting normal "refcount drops to 0" loop. */
+    while (bucket_engine->shutdown.bucket_counter == 1) {
+        pthread_mutex_unlock(&bucket_engine->shutdown.mutex);
+        usleep(1000);
+        pthread_mutex_lock(&bucket_engine->shutdown.mutex);
+    }
+    assert(bucket_engine->shutdown.bucket_counter == 0);
+    pthread_mutex_unlock(&bucket_engine->shutdown.mutex);
+
+    pthread_mutex_unlock(&notify_mutex);
+
     return SUCCESS;
+}
+
+static enum test_result test_delete_bucket_concurrent_multi(ENGINE_HANDLE *h,
+                                                            ENGINE_HANDLE_V1 *h1) {
+    int i = getenv_int_with_default("DELETE_BUCKET_CONCURRENT_ITERATIONS", 100);
+    if (i < 1) {
+        i = 1;
+    }
+    enum test_result rv = SUCCESS;
+    while (--i >= 0) {
+        rv = test_delete_bucket_concurrent(h, h1);
+        if (rv != SUCCESS) {
+            break;
+        }
+    }
+    return rv;
 }
 
 static enum test_result test_delete_bucket_shutdown_race(ENGINE_HANDLE *h,
@@ -1551,6 +1627,8 @@ int main(int argc, char **argv) {
         {"delete bucket (same connection)", test_delete_bucket_sameconnection,
          DEFAULT_CONFIG_NO_DEF},
         {"concurrent access delete bucket", test_delete_bucket_concurrent,
+         DEFAULT_CONFIG_NO_DEF},
+        {"concurrent access delete bucket multiple times", test_delete_bucket_concurrent_multi,
          DEFAULT_CONFIG_NO_DEF},
         {"delete bucket shutdwn race", test_delete_bucket_shutdown_race,
          DEFAULT_CONFIG_NO_DEF},
