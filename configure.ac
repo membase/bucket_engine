@@ -40,10 +40,13 @@ AC_ARG_WITH([memcached],
     [ac_cv_with_memcached=""])
 
 AS_IF(test "x${ac_cv_with_memcached}" != "x",
-      [CPPFLAGS="-I${ac_cv_with_memcached}/include $CPPFLAGS"
+      [AM_CPPFLAGS="-I${ac_cv_with_memcached}/include"
        PATH="${ac_cv_with_memcached}:$PATH"])
 
-AC_CHECK_HEADERS_ONCE(memcached/engine.h)
+memcached_headers_save_CPPFLAGS=$CPPFLAGS
+CPPFLAGS="$AM_CPPFLAGS $memcached_headers_save_CPPFLAGS"
+AC_CHECK_HEADERS(memcached/engine.h)
+CPPFLAGS="$memcached_headers_save_CPPFLAGS"
 AS_IF(test "x${ac_cv_header_memcached_engine_h}" != "xyes",
       AC_MSG_ERROR([Can't build bucket_engine without memcached/engine.h]))
 
