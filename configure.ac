@@ -33,6 +33,8 @@ ac_cv_func_realloc_0_nonnull=yes
 
 COUCHBASE_GENERIC_COMPILER
 
+AC_CHECK_HEADERS([atomic.h])
+
 AC_ARG_WITH([memcached],
     [AS_HELP_STRING([--with-memcached],
       [Memcached source location])],

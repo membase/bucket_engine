@@ -1,4 +1,5 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -21,16 +22,36 @@
 #include "genhash.h"
 #include "topkeys.h"
 #include "bucket_engine.h"
+#include "bucket_engine_internal.h"
 
 static rel_time_t (*get_current_time)(void);
 static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
+#if defined(HAVE_ATOMIC_H) && defined(__SUNPRO_C)
+#include <atomic.h>
+static inline int ATOMIC_ADD(volatile int *dest, int value) {
+    return atomic_add_int_nv((volatile unsigned int *)dest, value);
+}
+
+static inline int ATOMIC_INCR(volatile int *dest) {
+    return atomic_inc_32_nv((volatile unsigned int *)dest);
+}
+
+static inline int ATOMIC_DECR(volatile int *dest) {
+    return atomic_dec_32_nv((volatile unsigned int *)dest);
+}
+
+static inline int ATOMIC_CAS(volatile bucket_state_t *dest, int prev, int next) {
+    return (prev == atomic_cas_uint((volatile uint_t*)dest, (uint_t)prev,
+                                    (uint_t)next));
+}
+#else
 #define ATOMIC_ADD(i, by) __sync_add_and_fetch(i, by)
 #define ATOMIC_INCR(i) ATOMIC_ADD(i, 1)
 #define ATOMIC_DECR(i) ATOMIC_ADD(i, -1)
-#define ATOMIC_CAS(ptr, oldval, newval) __sync_bool_compare_and_swap(ptr, oldval, newval)
-
-#include "bucket_engine_internal.h"
+#define ATOMIC_CAS(ptr, oldval, newval) \
+            __sync_bool_compare_and_swap(ptr, oldval, newval)
+#endif
 
 static ENGINE_ERROR_CODE (*upstream_reserve_cookie)(const void *cookie);
 static ENGINE_ERROR_CODE (*upstream_release_cookie)(const void *cookie);
