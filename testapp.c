@@ -13,7 +13,7 @@
 #include <errno.h>
 #include <pthread.h>
 
-#include "genhash.h"
+#include <memcached/genhash.h>
 
 #include "bucket_engine.h"
 
@@ -249,10 +249,6 @@ static void *get_extension(extension_type_t type) {
     return ret;
 }
 
-static rel_time_t get_current_time(void) {
-    return (rel_time_t)time(NULL);
-}
-
 /**
  * Callback the engines may call to get the public server interface
  * @param interface the requested interface from the server
@@ -265,7 +261,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .server_version = get_server_version,
         // .hash = hash,
         // .realtime = realtime,
-        .get_current_time = get_current_time,
+        // .get_current_time = get_current_time,
         .parse_config = parse_config
     };
 

@@ -19,12 +19,11 @@
 #include <stdarg.h>
 
 #include <memcached/engine.h>
-#include "genhash.h"
-#include "topkeys.h"
+#include <memcached/genhash.h>
+
 #include "bucket_engine.h"
 #include "bucket_engine_internal.h"
 
-static rel_time_t (*get_current_time)(void);
 static EXTENSION_LOGGER_DESCRIPTOR *logger;
 
 #if defined(HAVE_ATOMIC_H) && defined(__SUNPRO_C)
@@ -248,7 +247,7 @@ static void release_memory(void *ptr, size_t size)
  * of clutter the code with a lot of tests this logic is moved
  * here.
  */
-void must_lock(pthread_mutex_t *mutex)
+static void must_lock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_lock(mutex);
     if (rv != 0) {
@@ -263,7 +262,7 @@ void must_lock(pthread_mutex_t *mutex)
  * of clutter the code with a lot of tests this logic is moved
  * here.
  */
-void must_unlock(pthread_mutex_t *mutex)
+static void must_unlock(pthread_mutex_t *mutex)
 {
     int rv = pthread_mutex_unlock(mutex);
     if (rv != 0) {
@@ -588,17 +587,7 @@ static bool has_valid_bucket_name(const char *n) {
 */
 static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const char *name, const char *module) {
     peh->stats = bucket_engine.upstream_server->stat->new_stats();
-    if (peh->stats == NULL) {
-        return ENGINE_ENOMEM;
-    }
-    if (bucket_engine.topkeys != 0) {
-        peh->topkeys = topkeys_init(bucket_engine.topkeys);
-        if (peh->topkeys == NULL) {
-            bucket_engine.upstream_server->stat->release_stats(peh->stats);
-            peh->stats = NULL;
-            return ENGINE_ENOMEM;
-        }
-    }
+    assert(peh->stats);
     peh->refcount = 1;
     peh->name = strdup(name);
     if (peh->name == NULL) {
@@ -621,9 +610,6 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
  */
 static void uninit_engine_handle(proxied_engine_handle_t *peh) {
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
-    if (peh->topkeys != NULL) {
-        topkeys_free(peh->topkeys);
-    }
     release_memory((void*)peh->name, peh->name_len);
     /* Note: looks like current engine API allows engine to keep some
      * connections reserved past destroy call return. This implies
@@ -1163,17 +1149,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
     struct bucket_engine* se = get_handle(handle);
     assert(!se->initialized);
 
-    char *tenv = getenv("MEMCACHED_TOP_KEYS");
-    if (tenv != NULL) {
-        se->topkeys = atoi(tenv);
-        if (se->topkeys < 0) {
-            se->topkeys = 0;
-        }
-    }
-
-    get_current_time = bucket_engine.upstream_server->core->get_current_time;
-
-
 #ifdef HAVE_PTHREAD_MUTEX_ERRORCHECK
     bucket_engine.mutexattr = &bucket_engine.mutexattr_storage;
 
@@ -1488,15 +1463,6 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
         ENGINE_ERROR_CODE ret;
         ret = peh->pe.v1->remove(peh->pe.v0, cookie, key, nkey, cas, vbucket);
         release_engine_handle(peh);
-
-        if (ret == ENGINE_SUCCESS) {
-            TK(peh->topkeys, delete_hits, key, nkey, get_current_time());
-        } else if (ret == ENGINE_KEY_ENOENT) {
-            TK(peh->topkeys, delete_misses, key, nkey, get_current_time());
-        } else if (ret == ENGINE_KEY_EEXISTS) {
-            TK(peh->topkeys, cas_badval, key, nkey, get_current_time());
-        }
-
         return ret;
     } else {
         return ENGINE_DISCONNECT;
@@ -1538,13 +1504,6 @@ static ENGINE_ERROR_CODE bucket_get(ENGINE_HANDLE* handle,
     if (peh) {
         ENGINE_ERROR_CODE ret;
         ret = peh->pe.v1->get(peh->pe.v0, cookie, itm, key, nkey, vbucket);
-
-        if (ret == ENGINE_SUCCESS) {
-            TK(peh->topkeys, get_hits, key, nkey, get_current_time());
-        } else if (ret == ENGINE_KEY_ENOENT) {
-            TK(peh->topkeys, get_misses, key, nkey, get_current_time());
-        }
-
         release_engine_handle(peh);
         return ret;
     } else {
@@ -1677,22 +1636,15 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
 
     if (peh) {
-        if (nkey == (sizeof("topkeys") - 1) &&
-            memcmp("topkeys", stat_key, nkey) == 0) {
-            rc = topkeys_stats(peh->topkeys, cookie, get_current_time(),
-                               add_stat);
-        } else {
-            rc = peh->pe.v1->get_stats(peh->pe.v0, cookie, stat_key,
-                                       nkey, add_stat);
-            if (nkey == 0) {
-                char statval[20];
-                snprintf(statval, sizeof(statval), "%d", peh->refcount - 1);
-                add_stat("bucket_conns", sizeof("bucket_conns") - 1, statval,
-                         strlen(statval), cookie);
-                snprintf(statval, sizeof(statval), "%d", peh->clients);
-                add_stat("bucket_active_conns", sizeof("bucket_active_conns") -1,
-                         statval, strlen(statval), cookie);
-            }
+        rc = peh->pe.v1->get_stats(peh->pe.v0, cookie, stat_key, nkey, add_stat);
+        if (nkey == 0) {
+            char statval[20];
+            snprintf(statval, sizeof(statval), "%d", peh->refcount - 1);
+            add_stat("bucket_conns", sizeof("bucket_conns") - 1, statval,
+                     strlen(statval), cookie);
+            snprintf(statval, sizeof(statval), "%d", peh->clients);
+            add_stat("bucket_active_conns", sizeof("bucket_active_conns") -1,
+                     statval, strlen(statval), cookie);
         }
         release_engine_handle(peh);
     }
@@ -1733,28 +1685,6 @@ static ENGINE_ERROR_CODE bucket_store(ENGINE_HANDLE* handle,
     if (peh) {
         ENGINE_ERROR_CODE ret;
         ret = peh->pe.v1->store(peh->pe.v0, cookie, itm, cas, operation, vbucket);
-        if (ret != ENGINE_EWOULDBLOCK && peh->topkeys) {
-            item_info itm_info = { .nvalue = 1 };
-            if (peh->pe.v1->get_item_info(peh->pe.v0, cookie, itm, &itm_info)) {
-                const void* key = itm_info.key;
-                const int nkey = itm_info.nkey;
-
-                if (operation != OPERATION_CAS) {
-                    TK(peh->topkeys, cmd_set, key, nkey, get_current_time());
-                } else {
-                    if (ret == ENGINE_SUCCESS) {
-                        TK(peh->topkeys, cas_hits, key, nkey,
-                           get_current_time());
-                    } else if (ret == ENGINE_KEY_EEXISTS) {
-                        TK(peh->topkeys, cas_badval, key, nkey,
-                           get_current_time());
-                    } else if (ret == ENGINE_KEY_ENOENT) {
-                        TK(peh->topkeys, cas_misses, key, nkey,
-                           get_current_time());
-                    }
-                }
-            }
-        }
         release_engine_handle(peh);
         return ret;
     } else {
@@ -1786,24 +1716,6 @@ static ENGINE_ERROR_CODE bucket_arithmetic(ENGINE_HANDLE* handle,
         ret = peh->pe.v1->arithmetic(peh->pe.v0, cookie, key, nkey,
                                 increment, create, delta, initial,
                                 exptime, cas, result, vbucket);
-
-
-        if (ret == ENGINE_SUCCESS) {
-            if (increment) {
-                TK(peh->topkeys, incr_hits, key, nkey, get_current_time());
-            } else {
-                TK(peh->topkeys, decr_hits, key, nkey, get_current_time());
-
-            }
-        } else if (ret == ENGINE_KEY_ENOENT) {
-            if (increment) {
-                TK(peh->topkeys, incr_misses, key, nkey, get_current_time());
-            } else {
-                TK(peh->topkeys, decr_misses, key, nkey, get_current_time());
-
-            }
-        }
-
         release_engine_handle(peh);
         return ret;
     } else {

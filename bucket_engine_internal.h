@@ -3,7 +3,6 @@
 #include "config.h"
 #include <memcached/engine.h>
 #include "genhash.h"
-#include "topkeys.h"
 #include "bucket_engine.h"
 
 typedef union proxied_engine {
@@ -23,7 +22,6 @@ typedef struct proxied_engine_handle {
     size_t               name_len;
     proxied_engine_t     pe;
     void                *stats;
-    topkeys_t           *topkeys;
     TAP_ITERATOR         tap_iterator;
     bool                 tap_iterator_disabled;
     /* ON_DISCONNECT handling */
@@ -124,7 +122,6 @@ struct bucket_engine {
                   (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
     } info;
 
-    int topkeys;
 };
 
 #endif

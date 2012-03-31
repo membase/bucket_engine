@@ -31,7 +31,6 @@ CFLAGS = -std=gnu99 -DNDEBUG -g \
 BUCKET_ENGINE_SRC = \
 		bucket_engine.c \
 		genhash.c \
-		topkeys.c \
 		win32/dlfcn.c
 BUCKET_ENGINE_OBJS = ${BUCKET_ENGINE_SRC:%.c=.libs/%.o}
 

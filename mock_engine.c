@@ -4,7 +4,7 @@
 #include <assert.h>
 
 #include <memcached/engine.h>
-#include "genhash.h"
+#include <memcached/genhash.h>
 
 #include "bucket_engine.h"
 
