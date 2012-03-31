@@ -166,7 +166,7 @@ static void tk_iterfunc(dlist_t *list, void *arg) {
     c->add_stat(it->ti_key, it->ti_nkey, val_str, vlen, c->cookie);
 }
 
-ENGINE_ERROR_CODE topkeys_stats(topkeys_t **tks, size_t shards,
+ENGINE_ERROR_CODE topkeys_stats(topkeys_t *tk,
                                 const void *cookie,
                                 const rel_time_t current_time,
                                 ADD_STAT add_stat) {
@@ -174,19 +174,9 @@ ENGINE_ERROR_CODE topkeys_stats(topkeys_t **tks, size_t shards,
     context.cookie = cookie;
     context.add_stat = add_stat;
     context.current_time = current_time;
-    for (size_t i = 0; i < shards; i++) {
-        topkeys_t *tk = tks[i];
-        assert(tk);
-        must_lock(&tk->mutex);
-        dlist_iter(&tk->list, tk_iterfunc, &context);
-        must_unlock(&tk->mutex);
-    }
+    assert(tk);
+    must_lock(&tk->mutex);
+    dlist_iter(&tk->list, tk_iterfunc, &context);
+    must_unlock(&tk->mutex);
     return ENGINE_SUCCESS;
-}
-
-topkeys_t *tk_get_shard(topkeys_t **tks, const void *key, size_t nkey) {
-    // This is special-cased for 8
-    assert(TK_SHARDS == 8);
-    int khash = genhash_string_hash(key, nkey);
-    return tks[khash & 0x07];
 }

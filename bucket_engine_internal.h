@@ -23,7 +23,7 @@ typedef struct proxied_engine_handle {
     size_t               name_len;
     proxied_engine_t     pe;
     void                *stats;
-    topkeys_t          **topkeys;
+    topkeys_t           *topkeys;
     TAP_ITERATOR         tap_iterator;
     bool                 tap_iterator_disabled;
     /* ON_DISCONNECT handling */

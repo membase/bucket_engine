@@ -592,10 +592,7 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
         return ENGINE_ENOMEM;
     }
     if (bucket_engine.topkeys != 0) {
-        peh->topkeys = calloc(TK_SHARDS, sizeof(topkeys_t *));
-        for (int i = 0; i < TK_SHARDS; i++) {
-            peh->topkeys[i] = topkeys_init(bucket_engine.topkeys);
-        }
+        peh->topkeys = topkeys_init(bucket_engine.topkeys);
         if (peh->topkeys == NULL) {
             bucket_engine.upstream_server->stat->release_stats(peh->stats);
             peh->stats = NULL;
@@ -625,10 +622,7 @@ static ENGINE_ERROR_CODE init_engine_handle(proxied_engine_handle_t *peh, const 
 static void uninit_engine_handle(proxied_engine_handle_t *peh) {
     bucket_engine.upstream_server->stat->release_stats(peh->stats);
     if (peh->topkeys != NULL) {
-        for (int i = 0; i < TK_SHARDS; i++) {
-            topkeys_free(peh->topkeys[i]);
-        }
-        free(peh->topkeys);
+        topkeys_free(peh->topkeys);
     }
     release_memory((void*)peh->name, peh->name_len);
     /* Note: looks like current engine API allows engine to keep some
@@ -1685,7 +1679,7 @@ static ENGINE_ERROR_CODE bucket_get_stats(ENGINE_HANDLE* handle,
     if (peh) {
         if (nkey == (sizeof("topkeys") - 1) &&
             memcmp("topkeys", stat_key, nkey) == 0) {
-            rc = topkeys_stats(peh->topkeys, TK_SHARDS, cookie, get_current_time(),
+            rc = topkeys_stats(peh->topkeys, cookie, get_current_time(),
                                add_stat);
         } else {
             rc = peh->pe.v1->get_stats(peh->pe.v0, cookie, stat_key,
