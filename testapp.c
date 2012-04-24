@@ -1071,7 +1071,7 @@ static enum test_result do_test_delete_bucket_concurrent(ENGINE_HANDLE *h,
 
 static enum test_result test_delete_bucket_concurrent(ENGINE_HANDLE *h,
                                                       ENGINE_HANDLE_V1 *h1) {
-    do_test_delete_bucket_concurrent(h, h1, true);
+    return do_test_delete_bucket_concurrent(h, h1, true);
 }
 
 static enum test_result test_delete_bucket_concurrent_multi(ENGINE_HANDLE *h,
