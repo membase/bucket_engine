@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -128,6 +129,23 @@ static void handle_disconnect(const void *cookie,
     ++h->disconnects;
 }
 
+static tap_event_t mock_tap_iterator(ENGINE_HANDLE* handle,
+                                     const void *cookie,
+                                     item **item,
+                                     void **engine_specific,
+                                     uint16_t *nengine_specific,
+                                     uint8_t *ttl,
+                                     uint16_t *flags,
+                                     uint32_t *seqno,
+                                     uint16_t *vbucket)
+{
+    struct mock_engine *e = (struct mock_engine*)handle;
+    e->server->cookie->release(cookie);
+    return TAP_DISCONNECT;
+}
+
+
+
 static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
                                           const void* client, size_t nclient,
                                           uint32_t flags,
@@ -141,7 +159,9 @@ static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* coo
     struct mock_engine *e = (struct mock_engine*)handle;
     assert(e->magic == MAGIC);
     assert(e->magic2 == MAGIC);
-    return NULL;
+
+    e->server->cookie->reserve(cookie);
+    return mock_tap_iterator;
 }
 
 static ENGINE_ERROR_CODE mock_tap_notify(ENGINE_HANDLE* handle,

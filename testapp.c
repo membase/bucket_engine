@@ -149,27 +149,21 @@ static void get_auth_data(const void *cookie, auth_data_t *data) {
     }
 }
 
-static struct connstruct *mk_conn(const char *user, const char *config) {
-    struct connstruct *rv = calloc(sizeof(struct connstruct), 1);
-    auth_data_t ad;
-    assert(rv);
-    rv->magic = CONN_MAGIC;
-    rv->uname = user ? strdup(user) : NULL;
-    rv->config = config ? strdup(config) : NULL;
-    rv->connected = true;
+static void mock_connect(struct connstruct *c) {
+    bool old_value;
     pthread_mutex_lock(&connstructs_mutex);
-    rv->next = connstructs;
-    connstructs = rv;
+    c->connected = true;
     pthread_mutex_unlock(&connstructs_mutex);
-    perform_callbacks(ON_CONNECT, NULL, rv);
-    if (rv->uname) {
-        get_auth_data(rv, &ad);
-        perform_callbacks(ON_AUTH, (const void*)&ad, rv);
+
+    perform_callbacks(ON_CONNECT, NULL, c);
+    if (c->uname) {
+        auth_data_t ad;
+        get_auth_data(c, &ad);
+        perform_callbacks(ON_AUTH, (const void*)&ad, c);
     }
-    return rv;
 }
 
-static void disconnect(struct connstruct *c) {
+static void mock_disconnect(struct connstruct *c) {
     bool old_value;
     pthread_mutex_lock(&connstructs_mutex);
     if ((old_value = c->connected)) {
@@ -179,6 +173,21 @@ static void disconnect(struct connstruct *c) {
     if (old_value) {
         perform_callbacks(ON_DISCONNECT, NULL, c);
     }
+}
+
+static struct connstruct *mk_conn(const char *user, const char *config) {
+    struct connstruct *rv = calloc(sizeof(struct connstruct), 1);
+    assert(rv);
+    rv->magic = CONN_MAGIC;
+    rv->uname = user ? strdup(user) : NULL;
+    rv->config = config ? strdup(config) : NULL;
+    rv->connected = false;
+    pthread_mutex_lock(&connstructs_mutex);
+    rv->next = connstructs;
+    connstructs = rv;
+    pthread_mutex_unlock(&connstructs_mutex);
+    mock_connect(rv);
+    return rv;
 }
 
 static void register_callback(ENGINE_HANDLE *eh,
@@ -208,6 +217,16 @@ static void *get_engine_specific(const void *cookie) {
     struct connstruct *c = (struct connstruct *)cookie;
     assert(c == NULL || c->magic == CONN_MAGIC);
     return c ? c->engine_data : NULL;
+}
+
+static ENGINE_ERROR_CODE reserve_cookie(const void *cookie)
+{
+    return ENGINE_SUCCESS;
+}
+
+static ENGINE_ERROR_CODE release_cookie(const void *cookie)
+{
+    return ENGINE_SUCCESS;
 }
 
 static void *create_stats(void) {
@@ -275,6 +294,8 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .get_engine_specific = get_engine_specific,
         // .get_socket_fd = get_socket_fd,
         .notify_io_complete = notify_io_complete,
+        .reserve = reserve_cookie,
+        .release = release_cookie
     };
 
     static SERVER_STAT_API server_stat_api = {
@@ -938,10 +959,10 @@ static void* conc_del_bucket_thread(void *arg) {
 
         if (random() % 3 == 0) {
             have_connection = false;
-            disconnect(cokie);
+            mock_disconnect(cokie);
         }
     }
-    disconnect(cokie);
+    mock_disconnect(cokie);
     return NULL;
 }
 
@@ -1035,7 +1056,7 @@ static enum test_result do_test_delete_bucket_concurrent(ENGINE_HANDLE *h,
                       key, strlen(key),
                       strlen(value), 9258, 3600);
     assert(rv == ENGINE_DISCONNECT);
-    disconnect(other_cookie);
+    mock_disconnect(other_cookie);
 
     for (int i = 0; i < n_threads; i++) {
         void *trv = NULL;
@@ -1401,9 +1422,27 @@ static enum test_result test_auto_config(ENGINE_HANDLE *h,
 static enum test_result test_get_tap_iterator(ENGINE_HANDLE *h,
                                               ENGINE_HANDLE_V1 *h1) {
     // This is run for its side effect of not crashing.
-    TAP_ITERATOR ti = h1->get_tap_iterator(h, mk_conn("someuser", ""),
+    const void *cookie = mk_conn(NULL, NULL);
+
+    TAP_ITERATOR ti = h1->get_tap_iterator(h, cookie,
                                            NULL, 0, 0, NULL, 0);
-    assert(ti == NULL);
+    assert(ti != NULL);
+
+    tap_event_t e;
+    do {
+        item *item;
+        void *engine_specific;
+        uint16_t nengine_specific;
+        uint8_t ttl;
+        uint16_t flags;
+        uint32_t seqno;
+        uint16_t vbucket;
+        e = ti(h, cookie, &item, &engine_specific, &nengine_specific, &ttl,
+               &flags, &seqno, &vbucket);
+    } while (e != TAP_DISCONNECT);
+
+    mock_disconnect(cookie);
+
     return SUCCESS;
 }
 
@@ -1415,6 +1454,118 @@ static enum test_result test_tap_notify(ENGINE_HANDLE *h,
                                           0, 0, 0,
                                           "aval", 4, 0);
     assert(ec == ENGINE_SUCCESS);
+    return SUCCESS;
+}
+
+
+#define MAX_CONNECTIONS_IN_POOL 1000
+struct {
+    pthread_mutex_t mutex;
+    int connected;
+    int pend_close;
+    TAP_ITERATOR iter;
+    struct connstruct *conn;
+} connection_pool[MAX_CONNECTIONS_IN_POOL];
+
+static void init_connection_pool() {
+    for (int ii = 0; ii < MAX_CONNECTIONS_IN_POOL; ++ii) {
+        connection_pool[ii].conn = mk_conn(NULL, NULL);
+        mock_disconnect(connection_pool[ii].conn);
+        connection_pool[ii].connected = 0;
+        connection_pool[ii].pend_close = 0;
+        connection_pool[ii].iter = NULL;
+        pthread_mutex_init(&connection_pool[ii].mutex, NULL);
+    }
+}
+
+static void cleanup_connection_pool(ENGINE_HANDLE *h) {
+    for (int ii = 0; ii < MAX_CONNECTIONS_IN_POOL; ++ii) {
+        if (connection_pool[ii].pend_close) {
+            tap_event_t e = connection_pool[ii].iter(h,
+                                                     connection_pool[ii].conn,
+                                                     NULL, NULL, NULL,
+                                                     NULL, NULL, NULL, NULL);
+            assert(e == TAP_DISCONNECT);
+        }
+        mock_disconnect(connection_pool[ii].conn);
+        pthread_mutex_destroy(&connection_pool[ii].mutex);
+    }
+}
+
+static void *network_io_thread(void *arg) {
+    int num_ops = 500000;
+    ENGINE_HANDLE *h = arg;
+    ENGINE_HANDLE_V1 *h1 = arg;
+
+    for (int ii = 0; ii < num_ops; ++ii) {
+        long idx = (random() & 0xffff) % 1000;
+        pthread_mutex_lock(&connection_pool[idx].mutex);
+        if (!connection_pool[idx].pend_close) {
+            if (!connection_pool[idx].connected) {
+                mock_connect(connection_pool[idx].conn);
+                connection_pool[idx].connected = 1;
+                if (h != NULL) {
+                    // run tap connect
+                    TAP_ITERATOR ti;
+                    ti = h1->get_tap_iterator(h,
+                                              connection_pool[idx].conn,
+                                              NULL, 0, 0, NULL, 0);
+                    assert(ti != NULL);
+                    connection_pool[idx].iter = ti;
+                    connection_pool[idx].pend_close = 1;
+                }
+            } else {
+                mock_disconnect(connection_pool[idx].conn);
+                connection_pool[idx].connected = 0;
+            }
+        } else {
+            tap_event_t e = connection_pool[idx].iter(h,
+                                                     connection_pool[idx].conn,
+                                                     NULL, NULL, NULL,
+                                                     NULL, NULL, NULL, NULL);
+            assert(e == TAP_DISCONNECT);
+            connection_pool[idx].pend_close = 0;
+        }
+        pthread_mutex_unlock(&connection_pool[idx].mutex);
+    }
+
+    return NULL;
+}
+
+static enum test_result test_concurrent_connect_disconnect(ENGINE_HANDLE *h,
+                                                           ENGINE_HANDLE_V1 *h1) {
+    init_connection_pool();
+    const int num_workers = 10;
+    pthread_t workers[num_workers];
+    for (int i = 0; i < num_workers; i++) {
+        int rc = pthread_create(&workers[i], NULL, network_io_thread, NULL);
+        assert(rc == 0);
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        int rc = pthread_join(workers[i], NULL);
+        assert(rc == 0);
+    }
+
+    cleanup_connection_pool(h);
+    return SUCCESS;
+}
+
+static enum test_result test_concurrent_connect_disconnect_tap(ENGINE_HANDLE *h,
+                                                               ENGINE_HANDLE_V1 *h1) {
+    init_connection_pool();
+    const int num_workers = 40;
+    pthread_t workers[num_workers];
+    for (int i = 0; i < num_workers; i++) {
+        int rc = pthread_create(&workers[i], NULL, network_io_thread, h);
+        assert(rc == 0);
+    }
+
+    for (int i = 0; i < num_workers; i++) {
+        int rc = pthread_join(workers[i], NULL);
+        assert(rc == 0);
+    }
+
     return SUCCESS;
 }
 
@@ -1468,7 +1619,7 @@ static int report_test(enum test_result r) {
 
 static void disconnect_all_connections(struct connstruct *c) {
     if (c) {
-        disconnect(c);
+        mock_disconnect(c);
         disconnect_all_connections(c->next);
         free((void*)c->uname);
         free((void*)c->config);
@@ -1664,6 +1815,10 @@ int main(int argc, char **argv) {
          DEFAULT_CONFIG_AC},
         {"get tap iterator", test_get_tap_iterator, NULL},
         {"tap notify", test_tap_notify, NULL},
+        {"concurrent connect/disconnect",
+         test_concurrent_connect_disconnect, NULL },
+        {"concurrent connect/disconnect (tap)",
+         test_concurrent_connect_disconnect_tap, NULL },
         {NULL, NULL, NULL}
     };
 
