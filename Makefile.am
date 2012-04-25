@@ -19,7 +19,7 @@ mock_engine_la_LIBADD = libgenhash.la
 
 noinst_PROGRAMS = testapp
 testapp_SOURCES = testapp.c
-testapp_DEPENDENCIES = mock_engine.la libgenhash.la
+testapp_DEPENDENCIES = mock_engine.la libgenhash.la bucket_engine.la
 testapp_LDADD = libgenhash.la
 
 pythonlibdir=$(libdir)/python
@@ -47,8 +47,11 @@ pkgdata_SCRIPTS = management/mc_bin_client.py  management/memcacheConstants.py m
 
 EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown
 
-test: all testapp
-	./testapp
+check_PROGRAMS = testapp
+
+TESTS=${check_PROGRAMS}
+
+test: check
 
 version:
 	test -d $(TMP_DIR) || mkdir $(TMP_DIR)
