@@ -43,7 +43,11 @@ BUILT_SOURCES = ${PYTHON_TOOLS}
 CLEANFILES = ${PYTHON_TOOLS}
 bin_SCRIPTS = ${PYTHON_TOOLS}
 
-pkgdata_SCRIPTS = management/mc_bin_client.py  management/memcacheConstants.py management/collectd.py management/collectd_memcached_buckets.py management/types.db
+pkgdata_SCRIPTS = management/mc_bin_client.py                   \
+                  management/memcacheConstants.py               \
+                  management/collectd.py                        \
+                  management/collectd_memcached_buckets.py      \
+                  management/types.db
 
 EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown
 
