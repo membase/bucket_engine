@@ -2351,7 +2351,7 @@ static ENGINE_ERROR_CODE do_bucket_engine_reserve_cookie(const void *cookie)
     /* This can only be reliably called form engine up-call so that
      * it's impossible to transition to STATE_STOPPED while we're
      * here. */
-    assert(peh->clients > 0);
+    assert(peh->clients >= 0);
 
     if (peh->state != STATE_RUNNING) {
         return ENGINE_FAILED;
