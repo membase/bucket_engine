@@ -1199,6 +1199,12 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
         return ENGINE_FAILED;
     }
 
+    if (pthread_mutex_init(&se->reserve_mutex, bucket_engine.mutexattr) != 0) {
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Error initializing mutex for bucket engine.\n");
+        return ENGINE_FAILED;
+    }
+
     ENGINE_ERROR_CODE ret = initialize_configuration(se, config_str);
     if (ret != ENGINE_SUCCESS) {
         return ret;
@@ -2417,7 +2423,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
  * @param cookie the cookie to reserve
  * @return ENGINE_SUCCESS upon success
  */
-static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
+static ENGINE_ERROR_CODE do_bucket_engine_reserve_cookie(const void *cookie)
 {
     ENGINE_ERROR_CODE ret;
     engine_specific_t *es;
@@ -2471,7 +2477,7 @@ static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
  *               reserved by a call to bucket_engine_reserve_cookie
  * @return ENGINE_SUCCESS upon success
  */
-static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
+static ENGINE_ERROR_CODE do_bucket_engine_release_cookie(const void *cookie)
 {
     // The cookie <b>SHALL</b> be reserved before the caller may call
     // release. Lets go ahead and verify that (and crash and burn if
@@ -2506,4 +2512,22 @@ static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
     }
 
     return ENGINE_SUCCESS;
+}
+
+static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
+{
+    ENGINE_ERROR_CODE ret;
+    must_lock(&bucket_engine.reserve_mutex);
+    ret = do_bucket_engine_reserve_cookie(cookie);
+    must_unlock(&bucket_engine.reserve_mutex);
+    return ret;
+}
+
+static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
+{
+    ENGINE_ERROR_CODE ret;
+    must_lock(&bucket_engine.reserve_mutex);
+    ret = do_bucket_engine_release_cookie(cookie);
+    must_unlock(&bucket_engine.reserve_mutex);
+    return ret;
 }
