@@ -99,7 +99,6 @@ struct bucket_engine {
 #ifdef HAVE_PTHREAD_MUTEX_ERRORCHECK
     pthread_mutexattr_t mutexattr_storage;
 #endif
-    pthread_mutex_t reserve_mutex;
 
     struct {
         bool in_progress; /* Is the global shutdown in progress */
