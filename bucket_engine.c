@@ -1013,11 +1013,21 @@ static void handle_disconnect(const void *cookie,
     struct bucket_engine *e = (struct bucket_engine*)cb_data;
     engine_specific_t *es;
 
+    logger->log(EXTENSION_LOG_DETAIL, cookie,
+                "Handle disconnect for: %p", cookie);
     es = e->upstream_server->cookie->get_engine_specific(cookie);
+    if (es == NULL) {
+        logger->log(EXTENSION_LOG_DETAIL, cookie,
+                    "The connection is no longer known to bucket_engine: %p",
+                    cookie);
+        return;
+    }
     assert(es);
 
     proxied_engine_handle_t *peh = es->peh;
     if (peh == NULL) {
+        logger->log(EXTENSION_LOG_DETAIL, cookie,
+                    "The connection is not connected to an engine %p", cookie);
         // Not attached to an engine!
         // Release the allocated memory, and clear the cookie data
         // upstream
@@ -1027,16 +1037,34 @@ static void handle_disconnect(const void *cookie,
         return;
     }
 
-    proxied_engine_handle_t *cb_peh = try_get_engine_handle((ENGINE_HANDLE *)e, cookie);
+    proxied_engine_handle_t *cb_peh;
+    cb_peh = try_get_engine_handle((ENGINE_HANDLE *)e, cookie);
 
     bool do_callback = cb_peh != NULL && peh->wants_disconnects;
     if (do_callback) {
+        logger->log(EXTENSION_LOG_DETAIL, NULL,
+                    "Send disconnect call to engine %p cookie %p",
+                    peh, cookie);
         peh->cb(cookie, type, event_data, peh->cb_data);
     }
 
     if (cb_peh != NULL) {
         release_engine_handle(cb_peh);
     }
+
+    /*
+     * We can't release the bucket engine yet, because the connection is
+     * still reserved
+     */
+    if (es->reserved != ES_CONNECTED_FLAG) {
+        logger->log(EXTENSION_LOG_DETAIL, cookie,
+                    "We can't complete the shutdown due to reservations %p",
+                    cookie);
+        return;
+    }
+
+    logger->log(EXTENSION_LOG_DETAIL, cookie, "Complete the shutdown of %p",
+                cookie);
 
     /* We don't expect concurrent calls to reserve because of
      * restriction that reserve can be only called from upcall. And
@@ -1194,12 +1222,6 @@ static ENGINE_ERROR_CODE bucket_initialize(ENGINE_HANDLE* handle,
 #endif
 
     if (pthread_mutex_init(&se->engines_mutex, bucket_engine.mutexattr) != 0) {
-        logger->log(EXTENSION_LOG_WARNING, NULL,
-                    "Error initializing mutex for bucket engine.\n");
-        return ENGINE_FAILED;
-    }
-
-    if (pthread_mutex_init(&se->reserve_mutex, bucket_engine.mutexattr) != 0) {
         logger->log(EXTENSION_LOG_WARNING, NULL,
                     "Error initializing mutex for bucket engine.\n");
         return ENGINE_FAILED;
@@ -2423,7 +2445,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
  * @param cookie the cookie to reserve
  * @return ENGINE_SUCCESS upon success
  */
-static ENGINE_ERROR_CODE do_bucket_engine_reserve_cookie(const void *cookie)
+static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
 {
     ENGINE_ERROR_CODE ret;
     engine_specific_t *es;
@@ -2477,7 +2499,7 @@ static ENGINE_ERROR_CODE do_bucket_engine_reserve_cookie(const void *cookie)
  *               reserved by a call to bucket_engine_reserve_cookie
  * @return ENGINE_SUCCESS upon success
  */
-static ENGINE_ERROR_CODE do_bucket_engine_release_cookie(const void *cookie)
+static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
 {
     // The cookie <b>SHALL</b> be reserved before the caller may call
     // release. Lets go ahead and verify that (and crash and burn if
@@ -2489,45 +2511,18 @@ static ENGINE_ERROR_CODE do_bucket_engine_release_cookie(const void *cookie)
     proxied_engine_handle_t *peh = es->peh;
     assert(peh != NULL);
 
-    // It's time to lock the engine handle and start releasing the cookie
-
-    int reserved = ATOMIC_DECR(&es->reserved);
-
-    if (reserved == 0) {
-        // this was the last reservation of the object, and the
-        // connection was already notified as closed. Release the memory
-        // and store a NULL pointer in the cookie so that we know it's released
-
-        release_memory(es, sizeof(*es));
-        bucket_engine.upstream_server->cookie->store_engine_specific(cookie, NULL);
-    }
-
+    // Decrement the internal reserved count, and then release it
+    // in the upstream engine.
+    ATOMIC_DECR(&es->reserved);
     release_handle(peh);
 
     if (upstream_release_cookie(cookie) != ENGINE_SUCCESS) {
         logger->log(EXTENSION_LOG_WARNING, cookie,
-                            "Failed to release a reserved cookie (%p).\n"
-                            "Expect a memory leak and potential hang situation on this client",
-                            cookie);
+                    "Failed to release a reserved cookie (%p).\n"
+                    "Expect a memory leak and potential hang situation "
+                    "on this client",
+                    cookie);
     }
 
     return ENGINE_SUCCESS;
-}
-
-static ENGINE_ERROR_CODE bucket_engine_reserve_cookie(const void *cookie)
-{
-    ENGINE_ERROR_CODE ret;
-    must_lock(&bucket_engine.reserve_mutex);
-    ret = do_bucket_engine_reserve_cookie(cookie);
-    must_unlock(&bucket_engine.reserve_mutex);
-    return ret;
-}
-
-static ENGINE_ERROR_CODE bucket_engine_release_cookie(const void *cookie)
-{
-    ENGINE_ERROR_CODE ret;
-    must_lock(&bucket_engine.reserve_mutex);
-    ret = do_bucket_engine_release_cookie(cookie);
-    must_unlock(&bucket_engine.reserve_mutex);
-    return ret;
 }
