@@ -1,8 +1,12 @@
 #! /bin/sh
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+root=@libdir@/python
+
 if test -z "${PYTHONPATH}"; then
-   PYTHONPATH=@libdir@/python
+   PYTHONPATH=$root
 else
-   PYTHONPATH=@libdir@/python:${PYTHONPATH}
+   PYTHONPATH=$root:${PYTHONPATH}
 fi
 export PYTHONPATH
-exec @libdir@/python/`basename $0`.py "$@"
+exec $root/`basename $0`.py "$@"
