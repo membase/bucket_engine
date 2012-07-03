@@ -49,7 +49,7 @@ pkgdata_SCRIPTS = management/mc_bin_client.py                   \
                   management/collectd_memcached_buckets.py      \
                   management/types.db
 
-EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown bucket-engine.spec
+EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown bucket_engine.spec
 
 check_PROGRAMS = testapp
 
