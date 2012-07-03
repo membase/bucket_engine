@@ -5,7 +5,8 @@ TMP_VER=$(TMP_DIR)/version_num.tmp
 
 memcachedlibdir = $(libdir)/memcached
 memcachedlib_LTLIBRARIES = bucket_engine.la
-bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h
+bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h \
+                          bucket_engine_internal.h
 bucket_engine_la_LDFLAGS= -module -dynamic -R '$(memcachedlibdir)'
 bucket_engine_la_LIBADD = libgenhash.la
 
@@ -47,7 +48,7 @@ pkgdata_SCRIPTS = management/mc_bin_client.py                   \
                   management/collectd_memcached_buckets.py      \
                   management/types.db
 
-EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown
+EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown bucket-engine.spec
 
 check_PROGRAMS = testapp
 
