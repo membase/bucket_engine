@@ -150,7 +150,6 @@ static void get_auth_data(const void *cookie, auth_data_t *data) {
 }
 
 static void mock_connect(struct connstruct *c) {
-    bool old_value;
     pthread_mutex_lock(&connstructs_mutex);
     c->connected = true;
     pthread_mutex_unlock(&connstructs_mutex);
@@ -221,11 +220,13 @@ static void *get_engine_specific(const void *cookie) {
 
 static ENGINE_ERROR_CODE reserve_cookie(const void *cookie)
 {
+    (void)cookie;
     return ENGINE_SUCCESS;
 }
 
 static ENGINE_ERROR_CODE release_cookie(const void *cookie)
 {
+    (void)cookie;
     return ENGINE_SUCCESS;
 }
 
@@ -877,7 +878,7 @@ static enum test_result do_test_delete_bucket(ENGINE_HANDLE *h,
     assert(last_status == 0);
 
     if (delete_on_same_connection) {
-        void *pkt = create_packet(SELECT_BUCKET, "someuser", "");
+        pkt = create_packet(SELECT_BUCKET, "someuser", "");
         rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
         free(pkt);
         assert(rv == ENGINE_SUCCESS);
@@ -934,7 +935,6 @@ struct handle_pair {
 static void* conc_del_bucket_thread(void *arg) {
     struct handle_pair *hp = arg;
 
-    bool keepGoing = true;
     bool have_connection = false;
     void *cokie;
     while (true) {
@@ -1430,18 +1430,18 @@ static enum test_result test_get_tap_iterator(ENGINE_HANDLE *h,
 
     tap_event_t e;
     do {
-        item *item;
+        item *it;
         void *engine_specific;
         uint16_t nengine_specific;
         uint8_t ttl;
         uint16_t flags;
         uint32_t seqno;
         uint16_t vbucket;
-        e = ti(h, cookie, &item, &engine_specific, &nengine_specific, &ttl,
+        e = ti(h, cookie, &it, &engine_specific, &nengine_specific, &ttl,
                &flags, &seqno, &vbucket);
     } while (e != TAP_DISCONNECT);
 
-    mock_disconnect(cookie);
+    mock_disconnect((void*)cookie);
 
     return SUCCESS;
 }
@@ -1467,7 +1467,7 @@ struct {
     struct connstruct *conn;
 } connection_pool[MAX_CONNECTIONS_IN_POOL];
 
-static void init_connection_pool() {
+static void init_connection_pool(void) {
     for (int ii = 0; ii < MAX_CONNECTIONS_IN_POOL; ++ii) {
         connection_pool[ii].conn = mk_conn(NULL, NULL);
         mock_disconnect(connection_pool[ii].conn);
@@ -1534,6 +1534,7 @@ static void *network_io_thread(void *arg) {
 
 static enum test_result test_concurrent_connect_disconnect(ENGINE_HANDLE *h,
                                                            ENGINE_HANDLE_V1 *h1) {
+    (void)h1;
     init_connection_pool();
     const int num_workers = 10;
     pthread_t workers[num_workers];
@@ -1553,6 +1554,7 @@ static enum test_result test_concurrent_connect_disconnect(ENGINE_HANDLE *h,
 
 static enum test_result test_concurrent_connect_disconnect_tap(ENGINE_HANDLE *h,
                                                                ENGINE_HANDLE_V1 *h1) {
+    (void)h1;
     init_connection_pool();
     const int num_workers = 40;
     pthread_t workers[num_workers];

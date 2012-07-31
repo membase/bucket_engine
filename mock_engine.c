@@ -131,7 +131,7 @@ static void handle_disconnect(const void *cookie,
 
 static tap_event_t mock_tap_iterator(ENGINE_HANDLE* handle,
                                      const void *cookie,
-                                     item **item,
+                                     item **it,
                                      void **engine_specific,
                                      uint16_t *nengine_specific,
                                      uint8_t *ttl,
@@ -141,6 +141,8 @@ static tap_event_t mock_tap_iterator(ENGINE_HANDLE* handle,
 {
     struct mock_engine *e = (struct mock_engine*)handle;
     e->server->cookie->release(cookie);
+    (void)it; (void)engine_specific; (void)nengine_specific;
+    (void)ttl;(void)flags; (void)seqno; (void)vbucket;
     return TAP_DISCONNECT;
 }
 
