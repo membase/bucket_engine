@@ -12,9 +12,11 @@ void must_unlock(pthread_mutex_t *mutex);
 #define TK_OPS(C) C(get_hits) C(get_misses) C(cmd_set) C(incr_hits) \
     C(incr_misses) C(decr_hits) C(decr_misses)                      \
     C(delete_hits) C(delete_misses) C(evictions)                    \
-    C(cas_hits) C(cas_badval) C(cas_misses)
+    C(cas_hits) C(cas_badval) C(cas_misses) C(get_replica)          \
+    C(evict) C(getl) C(unlock) C(get_meta) C(set_meta)              \
+    C(add_meta) C(del_meta)
 
-#define TK_MAX_VAL_LEN 250
+#define TK_MAX_VAL_LEN 500
 
 #define TK_SHARDS 8
 

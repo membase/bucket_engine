@@ -19,6 +19,7 @@
 #include <stdarg.h>
 
 #include <memcached/engine.h>
+#include <ep-engine/command_ids.h>
 #include "genhash.h"
 #include "topkeys.h"
 #include "bucket_engine.h"
@@ -2387,6 +2388,54 @@ static bool is_authorized(ENGINE_HANDLE* handle, const void* cookie) {
     return rv;
 }
 
+/* We know some of the commands inside ep-engine, so let's go ahead
+ * and update the topkeys for them. We don't want flush the topkeys
+ * cache for erronous requests from these, so ignore all misses etc
+ */
+static void update_topkey_command( proxied_engine_handle_t *peh,
+                                   protocol_binary_request_header *request,
+                                   ENGINE_ERROR_CODE rv)
+{
+    if (request->request.keylen == 0 || rv != ENGINE_SUCCESS) {
+        return ;
+    }
+
+    uint16_t nkey = ntohs(request->request.keylen);
+    EXTRACT_KEY(((protocol_binary_request_no_extras*)request), keyz);
+    const void* key = keyz;
+
+    switch (request->request.opcode) {
+    case CMD_GET_REPLICA:
+        TK(peh->topkeys, get_replica, key, nkey, get_current_time());
+        break;
+    case CMD_EVICT_KEY:
+        TK(peh->topkeys, evict, key, nkey, get_current_time());
+        break;
+    case CMD_GET_LOCKED:
+        TK(peh->topkeys, getl, key, nkey, get_current_time());
+        break;
+    case CMD_UNLOCK_KEY:
+        TK(peh->topkeys, unlock, key, nkey, get_current_time());
+        break;
+    case CMD_GET_META:
+    case CMD_GETQ_META:
+        TK(peh->topkeys, get_meta, key, nkey, get_current_time());
+        break;
+    case CMD_SET_WITH_META:
+    case CMD_SETQ_WITH_META:
+        TK(peh->topkeys, set_meta, key, nkey, get_current_time());
+        break;
+    case CMD_ADD_WITH_META:
+    case CMD_ADDQ_WITH_META:
+        TK(peh->topkeys, add_meta, key, nkey, get_current_time());
+        break;
+    case CMD_DEL_WITH_META:
+    case CMD_DELQ_WITH_META:
+        TK(peh->topkeys, del_meta, key, nkey, get_current_time());
+        break;
+    }
+}
+
 /**
  * Handle one of the "engine-specific" commands. Bucket-engine itself
  * implements a small subset of commands, but the user needs to be
@@ -2427,6 +2476,7 @@ static ENGINE_ERROR_CODE bucket_unknown_command(ENGINE_HANDLE* handle,
         if (peh) {
             rv = peh->pe.v1->unknown_command(peh->pe.v0, cookie, request,
                                              response);
+            update_topkey_command(peh, request, rv);
             release_engine_handle(peh);
         } else {
             rv = ENGINE_DISCONNECT;

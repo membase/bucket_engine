@@ -52,6 +52,10 @@ CPPFLAGS="$memcached_headers_save_CPPFLAGS"
 AS_IF(test "x${ac_cv_header_memcached_engine_h}" != "xyes",
       AC_MSG_ERROR([Can't build bucket_engine without memcached/engine.h]))
 
+AC_CHECK_HEADERS(ep-engine/command_ids.h)
+AS_IF(test "x${ac_cv_header_ep_engine_command_ids_h}" != "xyes",
+      AC_MSG_ERROR([Can't build bucket_engine without ep-engine/command_ids.h]))
+
 AC_SEARCH_LIBS(pthread_mutex_init, pthread)
 AC_SEARCH_LIBS(dlopen, dl)
 AC_SEARCH_LIBS(log, m)

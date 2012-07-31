@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include <memcached/engine.h>
+#include <ep-engine/command_ids.h>
 #include "genhash.h"
 
 #include "bucket_engine.h"
@@ -483,7 +484,23 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
                                               protocol_binary_request_header *request,
                                               ADD_RESPONSE response)
 {
-    (void)handle; (void)cookie; (void)request; (void)response;
+    switch (request->request.opcode) {
+    case CMD_GET_REPLICA:
+    case CMD_EVICT_KEY:
+    case CMD_GET_LOCKED:
+    case CMD_UNLOCK_KEY:
+    case CMD_GET_META:
+    case CMD_GETQ_META:
+    case CMD_SET_WITH_META:
+    case CMD_SETQ_WITH_META:
+    case CMD_ADD_WITH_META:
+    case CMD_ADDQ_WITH_META:
+    case CMD_DEL_WITH_META:
+    case CMD_DELQ_WITH_META:
+        return ENGINE_SUCCESS;
+    }
+
+    (void)handle; (void)cookie; (void)response;
     return ENGINE_ENOTSUP;
 }
 

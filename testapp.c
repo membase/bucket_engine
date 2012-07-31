@@ -17,7 +17,8 @@
 
 #include "bucket_engine.h"
 
-#include "memcached/engine.h"
+#include <memcached/engine.h>
+#include <ep-engine/command_ids.h>
 #include "memcached/util.h"
 
 #include "bucket_engine_internal.h"
@@ -1571,6 +1572,33 @@ static enum test_result test_concurrent_connect_disconnect_tap(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_topkeys(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    const void *adm_cookie = mk_conn("admin", NULL);
+    void *pkt = create_create_bucket_pkt("someuser", ENGINE_PATH, "");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+
+
+    pkt = create_packet(CMD_GET_REPLICA, "somekey", "someval");
+    rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+    free(pkt);
+
+    for (int cmd = 0x90; cmd < 0xff; ++cmd) {
+        pkt = create_packet(cmd, "somekey", "someval");
+        rv = h1->unknown_command(h, adm_cookie, pkt, add_response);
+        free(pkt);
+    }
+
+    rv = h1->get_stats(h, adm_cookie, "topkeys", 7, add_stats);
+    assert(rv == ENGINE_SUCCESS);
+    assert(genhash_size(stats_hash) == 1);
+    char *val = genhash_find(stats_hash, "somekey", strlen("somekey"));
+    assert(val != NULL);
+    assert(strstr(val, "get_replica=1,evict=1,getl=1,unlock=1,get_meta=2,set_meta=2,add_meta=2,del_meta=2") != NULL);
+    return SUCCESS;
+}
+
 static ENGINE_HANDLE_V1 *start_your_engines(const char *cfg) {
     ENGINE_HANDLE_V1 *h = (ENGINE_HANDLE_V1 *)load_engine(".libs/bucket_engine.so",
                                                           cfg);
@@ -1764,6 +1792,8 @@ int main(int argc, char **argv) {
     int i = 0;
     int rc = 0;
 
+    putenv("MEMCACHED_TOP_KEYS=10");
+
     struct test tests[] = {
         {"get info", test_get_info, NULL},
         {"default storage", test_default_storage, NULL},
@@ -1821,6 +1851,7 @@ int main(int argc, char **argv) {
          test_concurrent_connect_disconnect, NULL },
         {"concurrent connect/disconnect (tap)",
          test_concurrent_connect_disconnect_tap, NULL },
+        {"topkeys", test_topkeys, NULL },
         {NULL, NULL, NULL}
     };
 
