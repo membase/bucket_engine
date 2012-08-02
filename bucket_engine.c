@@ -2425,10 +2425,6 @@ static void update_topkey_command( proxied_engine_handle_t *peh,
     case CMD_SETQ_WITH_META:
         TK(peh->topkeys, set_meta, key, nkey, get_current_time());
         break;
-    case CMD_ADD_WITH_META:
-    case CMD_ADDQ_WITH_META:
-        TK(peh->topkeys, add_meta, key, nkey, get_current_time());
-        break;
     case CMD_DEL_WITH_META:
     case CMD_DELQ_WITH_META:
         TK(peh->topkeys, del_meta, key, nkey, get_current_time());

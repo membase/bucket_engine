@@ -1595,7 +1595,7 @@ static enum test_result test_topkeys(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     assert(genhash_size(stats_hash) == 1);
     char *val = genhash_find(stats_hash, "somekey", strlen("somekey"));
     assert(val != NULL);
-    assert(strstr(val, "get_replica=1,evict=1,getl=1,unlock=1,get_meta=2,set_meta=2,add_meta=2,del_meta=2") != NULL);
+    assert(strstr(val, "get_replica=1,evict=1,getl=1,unlock=1,get_meta=2,set_meta=2,del_meta=2") != NULL);
     return SUCCESS;
 }
 

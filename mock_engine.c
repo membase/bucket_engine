@@ -493,8 +493,6 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
     case CMD_GETQ_META:
     case CMD_SET_WITH_META:
     case CMD_SETQ_WITH_META:
-    case CMD_ADD_WITH_META:
-    case CMD_ADDQ_WITH_META:
     case CMD_DEL_WITH_META:
     case CMD_DELQ_WITH_META:
         return ENGINE_SUCCESS;

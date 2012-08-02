@@ -14,7 +14,7 @@ void must_unlock(pthread_mutex_t *mutex);
     C(delete_hits) C(delete_misses) C(evictions)                    \
     C(cas_hits) C(cas_badval) C(cas_misses) C(get_replica)          \
     C(evict) C(getl) C(unlock) C(get_meta) C(set_meta)              \
-    C(add_meta) C(del_meta)
+    C(del_meta)
 
 #define TK_MAX_VAL_LEN 500
 
