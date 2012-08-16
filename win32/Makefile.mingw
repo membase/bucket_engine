@@ -22,11 +22,12 @@ TCMALLOC_FLAGS = -Wwrite-strings \
                     -fno-builtin-valloc -fno-builtin-pvalloc
 
 MEMCACHED=../memcached
+EPENGINE=../ep-engine
 
 OBJDIR = .libs .libs/win32
 BINARIES= .libs/bucket_engine.so
 LIB=$(LOCALLIB) -L${MEMCACHED}/lib
-INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I. -I.. $(LOCALINC)
+INCLUDE= -Iwin32 -I.libs -I${MEMCACHED}/include -I$(EPENGINE)/include -I. $(LOCALINC)
 GENFILES=.libs/config_version.h
 CPPFLAGS= -g -O2 ${INCLUDE} -Wall
 
