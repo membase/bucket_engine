@@ -41,6 +41,12 @@ AC_ARG_WITH([memcached],
     [ac_cv_with_memcached="$withval"],
     [ac_cv_with_memcached=""])
 
+AC_ARG_WITH([management],
+    [AS_HELP_STRING([--with-management],
+      [Build and install management scripts @<:@default=no@:>@])],
+    [ac_cv_with_management="$withval"],
+    [ac_cv_with_management="no"])
+
 AS_IF(test "x${ac_cv_with_memcached}" != "x",
       [AM_CPPFLAGS="-I${ac_cv_with_memcached}/include"
        PATH="${ac_cv_with_memcached}:$PATH"])
@@ -51,6 +57,12 @@ AC_CHECK_HEADERS(memcached/engine.h)
 CPPFLAGS="$memcached_headers_save_CPPFLAGS"
 AS_IF(test "x${ac_cv_header_memcached_engine_h}" != "xyes",
       AC_MSG_ERROR([Can't build bucket_engine without memcached/engine.h]))
+
+AC_CHECK_HEADERS(ep-engine/command_ids.h)
+AS_IF(test "x${ac_cv_header_ep_engine_command_ids_h}" != "xyes",
+      AC_MSG_ERROR([Can't build bucket_engine without ep-engine/command_ids.h]))
+
+AM_CONDITIONAL(BUILD_MANAGEMENT, [test x"$ac_cv_with_management" != "xno"])
 
 AC_SEARCH_LIBS(pthread_mutex_init, pthread)
 AC_SEARCH_LIBS(dlopen, dl)
