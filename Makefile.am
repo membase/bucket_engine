@@ -1,7 +1,4 @@
 ACLOCAL_AMFLAGS = -I m4 --force
-TMP_DIR=./tmp
-
-TMP_VER=$(TMP_DIR)/version_num.tmp
 
 memcachedlibdir = $(libdir)/memcached
 memcachedlib_LTLIBRARIES = bucket_engine.la
@@ -56,15 +53,3 @@ check_PROGRAMS = testapp
 TESTS=${check_PROGRAMS}
 
 test: check
-
-version:
-	test -d $(TMP_DIR) || mkdir $(TMP_DIR)
-	git describe | sed s/-/_/g > $(TMP_VER)
-
-bdist: version
-	rm -f ./bucket_engine_*.tar.gz
-	rm -rf $(TMP_DIR)/bucket_engine
-	mkdir $(TMP_DIR)/bucket_engine
-	cp .libs/bucket_engine.so $(TMP_DIR)/bucket_engine
-	(cd $(TMP_DIR); tar cf - bucket_engine) | gzip -9 > bucket_engine_`cat $(TMP_VER)`-`uname -s`.`uname -m`.tar.gz
-	echo created bucket_engine_`cat $(TMP_VER)`-`uname -s`.`uname -m`.tar.gz
