@@ -62,5 +62,5 @@ AC_SEARCH_LIBS(log, m)
 
 dnl ----------------------------------------------------------------------------
 
-AC_CONFIG_FILES(Makefile management/python_wrapper)
+AC_CONFIG_FILES(Makefile python_wrapper)
 AC_OUTPUT

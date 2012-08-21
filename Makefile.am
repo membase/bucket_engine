@@ -33,7 +33,7 @@ PYTHON_TOOLS= \
                 management/collectd \
                 management/collectd_memcached_buckets
 
-${PYTHON_TOOLS}: management/python_wrapper
+${PYTHON_TOOLS}: python_wrapper
 	cp $< $@
 
 BUILT_SOURCES = ${PYTHON_TOOLS}
