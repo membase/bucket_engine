@@ -5,7 +5,8 @@ memcachedlib_LTLIBRARIES = bucket_engine.la
 bucket_engine_la_SOURCES= bucket_engine.c bucket_engine.h \
                           topkeys.c topkeys.h bucket_engine_internal.h
 
-bucket_engine_la_LDFLAGS= -module -dynamic -R '$(memcachedlibdir)'
+bucket_engine_la_LDFLAGS= -module -dynamic -R '$(memcachedlibdir)' \
+                          -avoid-version
 bucket_engine_la_LIBADD = libgenhash.la
 
 noinst_LTLIBRARIES = mock_engine.la libgenhash.la
