@@ -39,7 +39,7 @@
 /m4/version.m4
 /management/collectd
 /management/collectd_memcached_buckets
-/management/python_wrapper
+/python_wrapper
 /missing
 /mkinstalldirs
 /stamp-h1
