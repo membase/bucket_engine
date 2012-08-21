@@ -19,6 +19,7 @@ testapp_SOURCES = testapp.c
 testapp_DEPENDENCIES = mock_engine.la libgenhash.la bucket_engine.la
 testapp_LDADD = libgenhash.la
 
+if BUILD_MANAGEMENT
 pythonlibdir=$(libdir)/python
 pythonlib_DATA= \
                 management/mc_bin_client.py \
@@ -29,9 +30,7 @@ pythonlib_SCRIPTS= \
                 management/collectd.py \
                 management/collectd_memcached_buckets.py
 
-PYTHON_TOOLS= \
-                management/collectd \
-                management/collectd_memcached_buckets
+PYTHON_TOOLS= collectd collectd_memcached_buckets
 
 ${PYTHON_TOOLS}: python_wrapper
 	cp $< $@
@@ -45,8 +44,9 @@ pkgdata_SCRIPTS = management/mc_bin_client.py                   \
                   management/collectd.py                        \
                   management/collectd_memcached_buckets.py      \
                   management/types.db
+endif
 
-EXTRA_DIST = $(pkgdata_SCRIPTS) win32 README.markdown bucket_engine.spec
+EXTRA_DIST = management win32 README.markdown bucket_engine.spec
 
 check_PROGRAMS = testapp
 
