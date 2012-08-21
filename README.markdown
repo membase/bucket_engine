@@ -13,30 +13,17 @@ else).
 ## Building
 
 You will need a storage-engine capable memcached and its included
-headers.
+headers. In addition to that you'll need some type definitions from
+ep-engine.
 
-The easiest way to do this if you don't want to install memcached from
-source would be to just create a source tree and reference it.
-
-### Building Memcached
+The easiest way to build bucket_engine is to use repo:
 
 For example, assume you keep all of your projects in `~/prog/`, you
 can do this:
 
-    cd ~/prog
-    git clone -b engine git://github.com/dustin/memcached.git
-    cd memcached
-    ./config/autorun.sh
-    ./configure
-    make
-
-### Building the Bucket Engine
-
-    cd ~/prog
-    git clone git://github.com/northscale/bucket_engine.git
-    cd bucket_engine
-    ./configure --with-memcached=$HOME/prog/memcached
-    make
+    cd ~/prog/couchbase
+    repo init -u git://github.com/membase/manifest.git -m branch-2.0.xml
+    gmake make-install-bucket_engine
 
 ## Running
 
@@ -44,9 +31,9 @@ An example invocation using the bucket engine from your dev tree
 allowing every connecting user to automatically have his own isolated
 namespace within the default engine is as follows:
 
-    ~/prog/memcached/memcached -v -S \
-        -E ~/prog/bucket_engine/.libs/bucket_engine.so \
-        -e engine=$HOME/prog/memcached/.libs/default_engine.so
+    ~/prog/couchbase/memcached/memcached -v -S \
+        -E ~/prog/couchbase/bucket_engine/.libs/bucket_engine.so \
+        -e engine=$HOME/prog/couchbase/memcached/.libs/default_engine.so
 
 ## Configuration
 
