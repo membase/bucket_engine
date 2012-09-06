@@ -15,36 +15,15 @@ mock_engine_la_SOURCES = mock_engine.c
 mock_engine_la_LDFLAGS = -module -dynamic -rpath /nowhere
 mock_engine_la_LIBADD = libgenhash.la
 
+bin_PROGRAMS =
 noinst_PROGRAMS = testapp
 testapp_SOURCES = testapp.c
 testapp_DEPENDENCIES = mock_engine.la libgenhash.la bucket_engine.la
 testapp_LDADD = libgenhash.la
 
 if BUILD_MANAGEMENT
-pythonlibdir=$(libdir)/python
-pythonlib_DATA= \
-                management/mc_bin_client.py \
-                management/memcacheConstants.py \
-                management/types.db
-
-pythonlib_SCRIPTS= \
-                management/collectd.py \
-                management/collectd_memcached_buckets.py
-
-PYTHON_TOOLS= collectd collectd_memcached_buckets
-
-${PYTHON_TOOLS}: python_wrapper
-	cp $< $@
-
-BUILT_SOURCES = ${PYTHON_TOOLS}
-CLEANFILES = ${PYTHON_TOOLS}
-bin_SCRIPTS = ${PYTHON_TOOLS}
-
-pkgdata_SCRIPTS = management/mc_bin_client.py                   \
-                  management/memcacheConstants.py               \
-                  management/collectd.py                        \
-                  management/collectd_memcached_buckets.py      \
-                  management/types.db
+bin_PROGRAMS += management/bucket_tool
+management_bucket_tool_SOURCES = management/bucket_tool.c
 endif
 
 EXTRA_DIST = management win32 README.markdown bucket_engine.spec
