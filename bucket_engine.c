@@ -89,7 +89,7 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
                                             const size_t nkey,
-                                            uint64_t cas,
+                                            uint64_t* cas,
                                             uint16_t vbucket);
 static void bucket_item_release(ENGINE_HANDLE* handle,
                                 const void *cookie,
@@ -1516,7 +1516,7 @@ static ENGINE_ERROR_CODE bucket_item_delete(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
                                             const size_t nkey,
-                                            uint64_t cas,
+                                            uint64_t* cas,
                                             uint16_t vbucket) {
     proxied_engine_handle_t *peh = get_engine_handle(handle, cookie);
     if (peh) {
