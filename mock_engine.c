@@ -70,7 +70,7 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const void* key,
                                           const size_t nkey,
-                                          uint64_t cas,
+                                          uint64_t* cas,
                                           uint16_t vbucket);
 static void mock_item_release(ENGINE_HANDLE* handle,
                               const void *cookie, item* item);
@@ -360,7 +360,7 @@ static ENGINE_ERROR_CODE mock_item_delete(ENGINE_HANDLE* handle,
                                           const void* cookie,
                                           const void* key,
                                           const size_t nkey,
-                                          uint64_t cas,
+                                          uint64_t* cas,
                                           uint16_t vbucket) {
     (void)cookie;
     (void)cas;
