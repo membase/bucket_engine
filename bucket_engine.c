@@ -2095,10 +2095,12 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
  * containing a zero-terminated version of the key in the buffer.
  */
 #define EXTRACT_KEY(req, out)                                       \
-    char out[ntohs(req->message.header.request.keylen) + 1];        \
-    memcpy(out, ((char*)request) + sizeof(req->message.header),    \
-           ntohs(req->message.header.request.keylen));              \
-    out[ntohs(req->message.header.request.keylen)] = 0x00;
+    protocol_binary_request_no_extras *myptr = (void*)req;          \
+    char out[ntohs(myptr->message.header.request.keylen) + 1];      \
+    memcpy(out, ((char*)request) + sizeof(myptr->message.header) +  \
+                myptr->message.header.request.extlen,               \
+           ntohs(myreq->message.header.request.keylen));            \
+    out[ntohs(myreq->message.header.request.keylen)] = 0x00;
 
 /**
  * Implementation of the "CREATE" command.
