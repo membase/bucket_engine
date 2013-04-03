@@ -2099,8 +2099,8 @@ static ENGINE_ERROR_CODE initialize_configuration(struct bucket_engine *me,
     char out[ntohs(myptr->message.header.request.keylen) + 1];      \
     memcpy(out, ((char*)request) + sizeof(myptr->message.header) +  \
                 myptr->message.header.request.extlen,               \
-           ntohs(myreq->message.header.request.keylen));            \
-    out[ntohs(myreq->message.header.request.keylen)] = 0x00;
+           ntohs(myptr->message.header.request.keylen));            \
+    out[ntohs(myptr->message.header.request.keylen)] = 0x00;
 
 /**
  * Implementation of the "CREATE" command.
