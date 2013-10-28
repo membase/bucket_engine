@@ -172,6 +172,10 @@ static TAP_ITERATOR bucket_get_tap_iterator(ENGINE_HANDLE* handle, const void* c
 static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
                              char *buffer, size_t buffsz);
 
+static ENGINE_ERROR_CODE bucket_get_engine_vb_map(ENGINE_HANDLE* handle,
+                                                  const void * cookie,
+                                                  engine_get_vb_map_cb callback);
+
 static ENGINE_HANDLE *load_engine(void **dlhandle, const char *soname);
 
 static bool is_authorized(ENGINE_HANDLE* handle, const void* cookie);
@@ -210,7 +214,8 @@ struct bucket_engine bucket_engine = {
         .get_tap_iterator = bucket_get_tap_iterator,
         .item_set_cas     = bucket_item_set_cas,
         .get_item_info    = bucket_get_item_info,
-        .errinfo          = bucket_errinfo
+        .errinfo          = bucket_errinfo,
+        .get_engine_vb_map = bucket_get_engine_vb_map
     },
     .initialized = false,
     .shutdown = {
@@ -2026,6 +2031,25 @@ static size_t bucket_errinfo(ENGINE_HANDLE *handle, const void* cookie,
 
     return ret;
 }
+
+static ENGINE_ERROR_CODE bucket_get_engine_vb_map(ENGINE_HANDLE* handle,
+                                       const void * cookie,
+                                       engine_get_vb_map_cb callback) {
+    proxied_engine_handle_t *peh = try_get_engine_handle(handle, cookie);
+    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+
+    if (peh) {
+        if (peh->pe.v1->get_engine_vb_map) {
+            ret = peh->pe.v1->get_engine_vb_map(peh->pe.v0, cookie, callback);
+        } else {
+            ret = ENGINE_ENOTSUP;
+        }
+        release_engine_handle(peh);
+    }
+
+    return ret;
+}
+
 
 /**
  * Initialize configuration is called during the initialization of
